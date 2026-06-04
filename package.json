@@ -1,0 +1,57 @@
+{
+  "name": "rattoolkits-melonmusic",
+  "version": "1.0.0",
+  "description": "Rattoolkits-MelonMusic - 网易云音乐桌面悬浮窗",
+  "main": "main.js",
+  "scripts": {
+    "start": "powershell -NoProfile -ExecutionPolicy Bypass -File launch.ps1 .",
+    "dev": "powershell -NoProfile -ExecutionPolicy Bypass -File launch.ps1 . --dev",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win"
+  },
+  "build": {
+    "appId": "com.rattoolkits.melonmusic",
+    "productName": "MelonMusic",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "overlay.html",
+      "overlay.js",
+      "overlay.css",
+      "panel.html",
+      "panel.js",
+      "panel.css",
+      "gamepad.html",
+      "gamepad.js",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "MelonMusic",
+      "installerLanguages": [
+        "zh_CN",
+        "en_US"
+      ],
+      "unicode": true
+    }
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "dependencies": {
+    "iconv-lite": "^0.7.2",
+    "NeteaseCloudMusicApi": "^4.32.0"
+  }
+}

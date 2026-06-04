@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' https: data:">
+  <title>Rattoolkits-MelonMusic</title>
+  <link rel="stylesheet" href="panel.css">
+</head>
+<body>
+  <div id="app">
+    <!-- 顶部栏（可拖拽） -->
+    <div id="topbar" class="drag-region">
+      <div id="topbar-left">
+        <button id="user-btn" class="user-btn">👤</button>
+        <span id="now-playing-name-top" class="now-playing-top"></span>
+        <!-- 登录下拉菜单 -->
+        <div id="user-dropdown" class="dropdown" style="display:none">
+          <div class="login-form">
+
+            <!-- 未登录状态 -->
+            <div id="login-logged-out">
+              <input type="text" id="login-phone" class="login-input" placeholder="手机号" autocomplete="off">
+
+              <!-- 密码登录 -->
+              <div id="login-pwd-section">
+                <input type="password" id="login-password" class="login-input" placeholder="密码">
+                <button id="login-btn" class="login-btn">密码登录</button>
+              </div>
+
+              <!-- 短信登录 -->
+              <div id="login-sms-section" style="display:none">
+                <div class="sms-send-row">
+                  <button id="sms-send-btn" class="login-btn login-btn-sec">发送验证码</button>
+                  <span id="sms-timer" style="display:none"></span>
+                </div>
+                <input type="text" id="login-sms-code" class="login-input" placeholder="短信验证码">
+                <button id="sms-login-btn" class="login-btn">验证码登录</button>
+              </div>
+
+              <button id="login-switch" class="login-switch-btn">短信验证码登录 ›</button>
+
+              <div class="login-divider"><span>其他方式</span></div>
+
+              <button id="qr-login-btn" class="login-btn login-btn-sec">二维码登录</button>
+              <div id="qr-display" style="display:none">
+                <img id="qr-image" class="qr-image" alt="用网易云App扫码">
+                <div id="qr-status" class="login-status-text">等待扫码...</div>
+                <button id="qr-cancel-btn" class="login-btn login-btn-sec" style="margin-top:4px">取消</button>
+              </div>
+            </div>
+
+            <!-- 已登录状态 -->
+            <button id="logout-btn" class="login-btn logout-btn" style="display:none">退出登录</button>
+            <div id="login-status" class="login-status-text">未登录</div>
+            <div id="login-error" class="login-error-text" style="display:none"></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="win-controls">
+        <div class="win-btn" id="win-min">─</div>
+        <div class="win-btn" id="win-max">□</div>
+        <div class="win-btn win-close" id="win-close">✕</div>
+      </div>
+    </div>
+
+    <!-- 虚拟桌面 -->
+    <div id="desktop-panel">
+      <div id="virtual-desktop">
+        <div id="overlay-icon">♫</div>
+        <div id="pos-tooltip">x: 0, y: 0</div>
+      </div>
+      <div id="desktop-info">
+        <span id="screen-size-display">屏幕 —</span>
+        <span id="overlay-pos-display">悬浮窗 —</span>
+      </div>
+    </div>
+
+    <!-- 底部控制区 -->
+    <div id="bottom-controls">
+      <!-- 标签栏 -->
+      <div id="control-tabs">
+        <button class="ctrl-tab active" data-tab="pos">位置预设</button>
+        <button class="ctrl-tab" data-tab="media">播放</button>
+        <button class="ctrl-tab" data-tab="bind">快捷键</button>
+      </div>
+
+      <!-- 标签页内容 -->
+      <div id="ctrl-content">
+        <!-- 位置预设 -->
+        <div class="ctrl-panel active" id="ctrl-pos">
+          <div class="pos-preset-split">
+            <div class="pos-left">
+              <div class="ctrl-row">
+                <span class="ctrl-label">屏幕</span>
+                <select id="display-select" class="ctrl-select" style="flex:1"></select>
+              </div>
+              <div class="ctrl-row">
+                <span class="ctrl-label">X</span>
+                <input type="range" id="x-slider" class="ctrl-slider" min="0" max="100" value="0">
+                <span id="x-display" class="ctrl-val">0</span>
+              </div>
+              <div class="ctrl-row">
+                <span class="ctrl-label">Y</span>
+                <input type="range" id="y-slider" class="ctrl-slider" min="0" max="100" value="30">
+                <span id="y-display" class="ctrl-val">30</span>
+              </div>
+              <div class="ctrl-row">
+                <span class="ctrl-label">透明度</span>
+                <input type="range" id="opacity-slider" class="ctrl-slider" min="10" max="100" value="100" style="max-width:120px">
+                <span id="opacity-display" class="ctrl-val">100%</span>
+              </div>
+              <div class="ctrl-row" style="gap:12px">
+                <label class="ctrl-check"><input type="checkbox" id="visibility-check" checked> 显示</label>
+                <label class="ctrl-check"><input type="checkbox" id="close-quit-check" checked> 关闭退出</label>
+              </div>
+            </div>
+            <div class="pos-right">
+              <div class="preset-grid">
+                <button class="preset-btn" data-pos="tl">左上</button>
+                <button class="preset-btn" data-pos="tc">中上</button>
+                <button class="preset-btn" data-pos="tr">右上</button>
+                <button class="preset-btn" data-pos="ml">左中</button>
+                <button class="preset-btn" data-pos="mc">居中</button>
+                <button class="preset-btn" data-pos="mr">右中</button>
+                <button class="preset-btn" data-pos="bl">左下</button>
+                <button class="preset-btn" data-pos="bc">中下</button>
+                <button class="preset-btn" data-pos="br">右下</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 播放 -->
+        <div class="ctrl-panel" id="ctrl-media">
+          <div class="ctrl-row" style="justify-content:center;gap:8px">
+            <button id="btn-prev" class="media-btn" style="width:48px;padding:6px 0;font-size:20px">⏮</button>
+            <button id="btn-playpause" class="media-btn" style="width:48px;padding:6px 0;font-size:20px">⏯</button>
+            <button id="btn-next" class="media-btn" style="width:48px;padding:6px 0;font-size:20px">⏭</button>
+            <button id="refresh-btn" class="action-btn" style="margin-left:12px;font-size:11px">刷新</button>
+          </div>
+          <div class="ctrl-row" style="justify-content:center;margin-top:4px;gap:16px">
+            <span id="now-playing-name" class="song-name-display">等待音乐...</span>
+            <span id="now-playing-artist" class="artist-display"></span>
+          </div>
+        </div>
+
+        <!-- 快捷键 -->
+        <div class="ctrl-panel" id="ctrl-bind">
+          <div class="bind-type-tabs">
+            <button class="bind-tab active" data-tab="keyboard">键盘</button>
+            <button class="bind-tab" data-tab="mouse">鼠标</button>
+            <button class="bind-tab" data-tab="gamepad">手柄</button>
+          </div>
+          <div id="bind-keyboard" class="bind-panel active">
+            <div id="keyboard-list"></div>
+            <div class="capture-hint" style="display:none">按下按键组合...</div>
+          </div>
+          <div id="bind-mouse" class="bind-panel">
+            <div id="mouse-list"></div>
+          </div>
+          <div id="bind-gamepad" class="bind-panel">
+            <div id="gamepad-status" class="status-off" style="font-size:11px">未检测到手柄</div>
+            <div id="binding-list"></div>
+            <button id="bind-btn" class="action-btn" style="font-size:10px;padding:3px 8px" disabled>绑定按键</button>
+            <div id="bind-hint" class="hint-text" style="display:none">按下手柄按键...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script src="panel.js"></script>
+</body>
+</html>
