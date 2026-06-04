@@ -1,4 +1,8 @@
+# Ignore node modules
 node_modules/
+# Ignore Visual Studio Code settings
 .vscode/
+# Ignore build output directories
 dist/
+# Ignore build scripts
 build.ps1
