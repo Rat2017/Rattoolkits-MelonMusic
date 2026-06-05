@@ -194,36 +194,67 @@ opacitySlider.addEventListener('input', () => { opacityDisplay.textContent = opa
 visibilityCheck.addEventListener('change', () => window.api.toggleVisibility(visibilityCheck.checked));
 closeQuitCheck.addEventListener('change', () => { window.api.setCloseBehavior(closeQuitCheck.checked ? 'quit' : 'minimize'); });
 displaySelect.addEventListener('change', function() { window.api.sendDisplayChange(parseInt(this.value)); });
-document.getElementById('reset-size-btn').addEventListener('click', () => window.api.resetOverlaySize());
+document.getElementById('reset-size-btn').addEventListener('click', () => {
+  window.api.resetOverlaySize();
+  overlayW = 300; overlayH = 110;
+  document.getElementById('scale-slider').value = 50;
+  document.getElementById('scale-display').textContent = '50%';
+  document.getElementById('width-slider').value = 300;
+  document.getElementById('width-display').textContent = '300px';
+  document.getElementById('height-slider').value = 110;
+  document.getElementById('height-display').textContent = '110px';
+});
+document.getElementById('scale-slider').addEventListener('input', function() {
+  const scale = parseInt(this.value);
+  document.getElementById('scale-display').textContent = scale + '%';
+  window.api.setOverlayScale(scale);
+});
+document.getElementById('width-slider').addEventListener('input', function() {
+  const w = parseInt(this.value);
+  overlayW = w;
+  document.getElementById('width-display').textContent = w + 'px';
+  window.api.setOverlaySize(w, parseInt(document.getElementById('height-slider').value));
+});
+document.getElementById('height-slider').addEventListener('input', function() {
+  const h = parseInt(this.value);
+  overlayH = h;
+  document.getElementById('height-display').textContent = h + 'px';
+  window.api.setOverlaySize(parseInt(document.getElementById('width-slider').value), h);
+});
 document.getElementById('show-controls-check').addEventListener('change', function() { window.api.setShowControls(this.checked); });
 document.getElementById('show-lyrics-check').addEventListener('change', function() { window.api.setShowLyrics(this.checked); });
 document.getElementById('show-prevnext-check').addEventListener('change', function() { window.api.setShowPrevNext(this.checked); });
-document.getElementById('auto-random-check').addEventListener('change', function() {
-  window.api.setAutoRandom(this.checked);
+document.getElementById('lyric-offset-slider').addEventListener('input', function() {
+  const val = parseInt(this.value);
+  document.getElementById('lyric-offset-display').textContent = (val / 10).toFixed(1) + 's';
+  window.api.setLyricOffset(val / 10);
 });
+// document.getElementById('auto-random-check').addEventListener('change', function() {
+//   window.api.setAutoRandom(this.checked);
+// });
 
 // ── 媒体按钮 ──
 document.getElementById('btn-prev').addEventListener('click', () => window.api.controlAction('prev'));
 document.getElementById('btn-playpause').addEventListener('click', () => window.api.controlAction('playpause'));
 document.getElementById('btn-next').addEventListener('click', () => window.api.controlAction('next'));
-document.getElementById('btn-random').addEventListener('click', () => {
-  const btn = document.getElementById('btn-random');
-  btn.textContent = '...';
-  btn.disabled = true;
-  window.api.playRandom();
-});
-window.api.onRandomResult((data) => {
-  const btn = document.getElementById('btn-random');
-  btn.disabled = false;
-  if (data.success) {
-    btn.textContent = '✓';
-    setTimeout(() => { btn.textContent = '随机'; }, 2000);
-  } else {
-    btn.textContent = '✕';
-    setTimeout(() => { btn.textContent = '随机'; }, 2000);
-    if (data.error) console.log('随机播放失败:', data.error);
-  }
-});
+// document.getElementById('btn-random').addEventListener('click', () => {
+//   const btn = document.getElementById('btn-random');
+//   btn.textContent = '...';
+//   btn.disabled = true;
+//   window.api.playRandom();
+// });
+// window.api.onRandomResult((data) => {
+//   const btn = document.getElementById('btn-random');
+//   btn.disabled = false;
+//   if (data.success) {
+//     btn.textContent = '✓';
+//     setTimeout(() => { btn.textContent = '随机'; }, 2000);
+//   } else {
+//     btn.textContent = '✕';
+//     setTimeout(() => { btn.textContent = '随机'; }, 2000);
+//     if (data.error) console.log('随机播放失败:', data.error);
+//   }
+// });
 refreshBtn.addEventListener('click', async () => {
   refreshBtn.disabled = true; refreshBtn.textContent = '...';
   try { const r = await window.api.pollNow(); if (r?.song) { nowPlayingName.textContent = r.song; nowPlayingArtist.textContent = r.artist || ''; } } catch (e) {}
@@ -458,6 +489,21 @@ window.api.onInitState((data) => {
   visibilityCheck.checked = data.visible !== false;
   document.getElementById('show-controls-check').checked = data.showControls || false;
   document.getElementById('show-lyrics-check').checked = data.showLyrics || false;
+  if (data.overlayScale) {
+    document.getElementById('scale-slider').value = data.overlayScale;
+    document.getElementById('scale-display').textContent = data.overlayScale + '%';
+  }
+  const ow = data.overlaySize?.width || overlayW;
+  const oh = data.overlaySize?.height || overlayH;
+  document.getElementById('width-slider').value = ow;
+  document.getElementById('width-display').textContent = ow + 'px';
+  document.getElementById('height-slider').value = oh;
+  document.getElementById('height-display').textContent = oh + 'px';
+  if (data.lyricManualOffset !== undefined) {
+    const v = Math.round(data.lyricManualOffset * 10);
+    document.getElementById('lyric-offset-slider').value = v;
+    document.getElementById('lyric-offset-display').textContent = (v / 10).toFixed(1) + 's';
+  }
   document.getElementById('show-prevnext-check').checked = data.showPrevNext || false;
   if (data.savedPhone) loginPhone.value = data.savedPhone;
   if (data.closeBehavior === 'minimize') closeQuitCheck.checked = false;
@@ -474,9 +520,9 @@ window.api.onNowPlaying((data) => {
   nowPlayingTop.textContent = data.name || '';
 });
 
-window.api.onAutoRandomStatus((data) => {
-  document.getElementById('auto-random-check').checked = data.enabled;
-});
+// window.api.onAutoRandomStatus((data) => {
+//   document.getElementById('auto-random-check').checked = data.enabled;
+// });
 
 window.api.onPositionUpdated((data) => { updateIconPosition(data.x, data.y); var r=absToRel(data.x,data.y); updateSliders(r.x,r.y); updateTooltip(data.x, data.y); });
 window.api.onGamepadStatus((data) => {
@@ -502,6 +548,21 @@ window.api.onOverlaySizeUpdated((data) => {
   if (data) {
     overlayW = data.width || overlayW;
     overlayH = data.height || overlayH;
+    document.getElementById('width-slider').value = overlayW;
+    document.getElementById('width-display').textContent = overlayW + 'px';
+    document.getElementById('height-slider').value = overlayH;
+    document.getElementById('height-display').textContent = overlayH + 'px';
+    if (data.scale) {
+      document.getElementById('scale-slider').value = data.scale;
+      document.getElementById('scale-display').textContent = data.scale + '%';
+    }
+  }
+});
+window.api.onLyricOffsetUpdated((data) => {
+  if (data && data.offset !== undefined) {
+    const v = Math.round(data.offset * 10);
+    document.getElementById('lyric-offset-slider').value = v;
+    document.getElementById('lyric-offset-display').textContent = (v / 10).toFixed(1) + 's';
   }
 });
 
@@ -633,10 +694,25 @@ window.api.onQrResult((data) => {
     document.getElementById('show-controls-check').checked = status.showControls || false;
     document.getElementById('show-lyrics-check').checked = status.showLyrics || false;
     document.getElementById('show-prevnext-check').checked = status.showPrevNext || false;
+    if (status.overlayScale) {
+      document.getElementById('scale-slider').value = status.overlayScale;
+      document.getElementById('scale-display').textContent = status.overlayScale + '%';
+    }
+    const sw = status.overlaySize?.width || overlayW;
+    const sh = status.overlaySize?.height || overlayH;
+    document.getElementById('width-slider').value = sw;
+    document.getElementById('width-display').textContent = sw + 'px';
+    document.getElementById('height-slider').value = sh;
+    document.getElementById('height-display').textContent = sh + 'px';
+    if (status.lyricManualOffset !== undefined) {
+      const v = Math.round(status.lyricManualOffset * 10);
+      document.getElementById('lyric-offset-slider').value = v;
+      document.getElementById('lyric-offset-display').textContent = (v / 10).toFixed(1) + 's';
+    }
   }
   const b = await window.api.loadBindings();
   if (b) { bindings = b; renderAllBindings(); }
   // 加载自动随机状态
-  const ar = await window.api.getAutoRandom();
-  if (ar) document.getElementById('auto-random-check').checked = ar.enabled;
+  // const ar = await window.api.getAutoRandom();
+  // if (ar) document.getElementById('auto-random-check').checked = ar.enabled;
 })();

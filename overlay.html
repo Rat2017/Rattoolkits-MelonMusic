@@ -7,23 +7,25 @@
 </head>
 <body>
   <div id="container">
-    <div id="cover-wrap">
-      <img id="cover" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 80'%3E%3Crect width='80' height='80' fill='%23282c34'/%3E%3Ctext x='40' y='40' text-anchor='middle' dominant-baseline='central' fill='%23555' font-size='28' font-family='sans-serif'%3E%E2%99%AA%3C/text%3E%3C/svg%3E" alt="cover">
-      <div id="loading-spinner" style="display:none"></div>
+    <div id="content">
+      <div id="cover-wrap">
+        <img id="cover" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 80'%3E%3Crect width='80' height='80' fill='%23282c34'/%3E%3Ctext x='40' y='40' text-anchor='middle' dominant-baseline='central' fill='%23555' font-size='28' font-family='sans-serif'%3E%E2%99%AA%3C/text%3E%3C/svg%3E" alt="cover">
+        <div id="loading-spinner" style="display:none"></div>
+      </div>
+      <div id="info">
+        <div id="prev-name" class="prev-next-text"></div>
+        <div id="song-name">等待音乐...</div>
+        <div id="artist-name"></div>
+        <div id="next-name" class="prev-next-text"></div>
+      </div>
+      <div id="controls" class="overlay-controls" style="display:none">
+        <button class="ctrl-btn" id="ctrl-prev" title="上一首">⏮</button>
+        <button class="ctrl-btn ctrl-btn-play" id="ctrl-playpause" title="播放/暂停">⏯</button>
+        <button class="ctrl-btn" id="ctrl-next" title="下一首">⏭</button>
+        <!-- <button class="ctrl-btn ctrl-btn-random" id="ctrl-random" title="随机播放">随机</button> -->
+      </div>
+      <div id="lyrics" class="overlay-lyrics" style="display:none"></div>
     </div>
-    <div id="info">
-      <div id="prev-name" class="prev-next-text"></div>
-      <div id="song-name">等待音乐...</div>
-      <div id="artist-name"></div>
-      <div id="next-name" class="prev-next-text"></div>
-    </div>
-    <div id="controls" class="overlay-controls" style="display:none">
-      <button class="ctrl-btn" id="ctrl-prev" title="上一首">⏮</button>
-      <button class="ctrl-btn" id="ctrl-playpause" title="播放/暂停">⏯</button>
-      <button class="ctrl-btn" id="ctrl-next" title="下一首">⏭</button>
-      <button class="ctrl-btn ctrl-btn-random" id="ctrl-random" title="随机播放">随机</button>
-    </div>
-    <div id="lyrics" class="overlay-lyrics" style="display:none"></div>
   </div>
   <script src="overlay.js"></script>
 </body>

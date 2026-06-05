@@ -55,6 +55,14 @@ contextBridge.exposeInMainWorld('api', {
   // 重置悬浮窗大小
   resetOverlaySize: () => ipcRenderer.send('overlay:reset-size'),
 
+  // 自定义缩放
+  setOverlayScale: (scale) => ipcRenderer.send('overlay:set-scale', { scale }),
+  setOverlaySize: (width, height) => ipcRenderer.send('overlay:set-size', { width, height }),
+
+  // 歌词补偿
+  setLyricOffset: (offset) => ipcRenderer.send('lyrics:set-offset', { offset }),
+  onLyricOffsetUpdated: (cb) => { const h = (_, d) => cb(d); ipcRenderer.on('lyrics:offset-updated', h); return () => ipcRenderer.removeListener('lyrics:offset-updated', h); },
+
   // 状态
   getStatus: () => ipcRenderer.invoke('get:status'),
   pollNow: () => ipcRenderer.invoke('poll:now'),
@@ -66,13 +74,13 @@ contextBridge.exposeInMainWorld('api', {
 
   // 短信验证码
   // 随机播放
-  playRandom: () => ipcRenderer.invoke('song:play-random'),
-  onRandomResult: (cb) => { const h = (_, d) => cb(d); ipcRenderer.on('random:result', h); return () => ipcRenderer.removeListener('random:result', h); },
+  // playRandom: () => ipcRenderer.invoke('song:play-random'),
+  // onRandomResult: (cb) => { const h = (_, d) => cb(d); ipcRenderer.on('random:result', h); return () => ipcRenderer.removeListener('random:result', h); },
 
   // 自动随机
-  setAutoRandom: (enabled) => ipcRenderer.invoke('auto-random:toggle', { enabled }),
-  getAutoRandom: () => ipcRenderer.invoke('auto-random:status'),
-  onAutoRandomStatus: (cb) => { const h = (_, d) => cb(d); ipcRenderer.on('auto-random:status', h); return () => ipcRenderer.removeListener('auto-random:status', h); },
+  // setAutoRandom: (enabled) => ipcRenderer.invoke('auto-random:toggle', { enabled }),
+  // getAutoRandom: () => ipcRenderer.invoke('auto-random:status'),
+  // onAutoRandomStatus: (cb) => { const h = (_, d) => cb(d); ipcRenderer.on('auto-random:status', h); return () => ipcRenderer.removeListener('auto-random:status', h); },
 
   smsSend: (phone) => ipcRenderer.invoke('sms:send', { phone }),
   smsLogin: (phone, captcha) => ipcRenderer.invoke('sms:login', { phone, captcha }),

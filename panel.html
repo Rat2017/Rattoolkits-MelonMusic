@@ -93,22 +93,46 @@
               <div class="ctrl-row">
                 <span class="ctrl-label">屏幕</span>
                 <select id="display-select" class="ctrl-select" style="max-width:140px"></select>
-                <button id="reset-size-btn" class="reset-size-btn" title="恢复默认大小">重置大小</button>
               </div>
               <div class="ctrl-row">
-                <span class="ctrl-label">X</span>
+                <span class="ctrl-label">X位置</span>
                 <input type="range" id="x-slider" class="ctrl-slider" min="0" max="100" value="0">
                 <span id="x-display" class="ctrl-val">0</span>
               </div>
               <div class="ctrl-row">
-                <span class="ctrl-label">Y</span>
+                <span class="ctrl-label">Y位置</span>
                 <input type="range" id="y-slider" class="ctrl-slider" min="0" max="100" value="30">
                 <span id="y-display" class="ctrl-val">30</span>
               </div>
               <div class="ctrl-row">
                 <span class="ctrl-label">透明度</span>
-                <input type="range" id="opacity-slider" class="ctrl-slider" min="10" max="100" value="100" style="max-width:160px">
+                <input type="range" id="opacity-slider" class="ctrl-slider" min="10" max="100" value="100">
                 <span id="opacity-display" class="ctrl-val">100%</span>
+              </div>
+            </div>
+            <div class="pos-middle">
+              <div class="ctrl-row">
+                <span class="ctrl-label">字体大小</span>
+                <input type="range" id="scale-slider" class="ctrl-slider" min="50" max="200" value="50">
+                <span id="scale-display" class="ctrl-val">50%</span>
+              </div>
+              <div class="ctrl-row">
+                <span class="ctrl-label">X尺寸</span>
+                <input type="range" id="width-slider" class="ctrl-slider" min="150" max="700" value="300">
+                <span id="width-display" class="ctrl-val">300px</span>
+              </div>
+              <div class="ctrl-row">
+                <span class="ctrl-label">Y尺寸</span>
+                <input type="range" id="height-slider" class="ctrl-slider" min="50" max="300" value="110">
+                <span id="height-display" class="ctrl-val">110px</span>
+              </div>
+              <button id="reset-size-btn" class="reset-size-btn" style="margin-top:4px;width:100%">重置大小</button>
+            </div>
+            <div class="pos-lyrics">
+              <div class="ctrl-row">
+                <span class="ctrl-label">歌词补偿</span>
+                <input type="range" id="lyric-offset-slider" class="ctrl-slider" min="-30" max="30" value="0">
+                <span id="lyric-offset-display" class="ctrl-val">0.0s</span>
               </div>
             </div>
             <div class="pos-right">
@@ -131,7 +155,7 @@
             <label class="toggle-chip"><input type="checkbox" id="show-controls-check"><span>控制按钮</span></label>
             <label class="toggle-chip"><input type="checkbox" id="show-lyrics-check"><span>歌词显示</span></label>
             <label class="toggle-chip"><input type="checkbox" id="show-prevnext-check"><span>上一曲/下一曲</span></label>
-            <label class="toggle-chip"><input type="checkbox" id="auto-random-check"><span>自动随机</span></label>
+            <!-- <label class="toggle-chip"><input type="checkbox" id="auto-random-check"><span>自动随机</span></label> -->
           </div>
           </div>
         </div>
@@ -143,7 +167,7 @@
               <button id="btn-prev" class="media-btn" title="上一首">⏮</button>
               <button id="btn-playpause" class="media-btn media-btn-play" title="播放/暂停">▶</button>
               <button id="btn-next" class="media-btn" title="下一首">⏭</button>
-              <button id="btn-random" class="media-btn media-btn-random" title="随机播放（从歌单中随机选一首）">随机</button>
+              <!-- <button id="btn-random" class="media-btn media-btn-random" title="随机播放（从歌单中随机选一首）">随机</button> -->
             </div>
             <div class="media-info">
               <span id="now-playing-name" class="song-name-display">等待音乐...</span>

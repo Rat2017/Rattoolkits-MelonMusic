@@ -22,15 +22,18 @@ let emptyPollCount = 0;         // 空轮询计数
 let lastWinTitle = '';          // 上次窗口标题
 let currentLyrics = '';        // 当前歌词文本
 let currentLyricOffset = 0;    // 歌词同步偏移量（秒）
+let currentLyricLines = [];    // 歌词时间行数组
 const WIN_TITLE_INTERVAL = 800; // 窗口标题轮询间隔（毫秒）
 
 let tray = null;
 let settings = {
-  opacity: 1, visible: true, x: 20, y: 200, width: 360, height: 140,
+  opacity: 1, visible: true, x: 20, y: 200, width: 300, height: 110,
   phone: '', password: '', closeBehavior: 'quit',
   displayIndex: 0,
   showControls: false, showLyrics: false, showPrevNext: false,
-  autoRandom: false,
+  // autoRandom: false,
+  lyricManualOffset: 0,
+  overlayScale: 50,
   savedCookie: '', savedUid: null
 };
 
@@ -53,26 +56,26 @@ let bindings = {
 const ACTIONS = ['next', 'prev', 'playpause'];
 
 // ── 自动随机播放 ──
-let autoRandomEnabled = false;
-let autoRandomTimer = null;
+// let autoRandomEnabled = false;
+// let autoRandomTimer = null;
 
-function scheduleAutoRandom(durationMs) {
-  cancelAutoRandom();
-  if (!autoRandomEnabled || !durationMs || durationMs <= 0) return;
-  const delay = Math.max(5000, durationMs + 2000); // 至少5秒，歌曲时长+2秒缓冲
-  console.log(`自动随机: ${Math.round(delay/1000)}秒后随机下一首`);
-  autoRandomTimer = setTimeout(() => {
-    console.log('自动随机: 定时触发，播放随机歌曲');
-    playRandomSong();
-  }, delay);
-}
+// function scheduleAutoRandom(durationMs) {
+//   cancelAutoRandom();
+//   if (!autoRandomEnabled || !durationMs || durationMs <= 0) return;
+//   const delay = Math.max(5000, durationMs + 2000);
+//   console.log(`自动随机: ${Math.round(delay/1000)}秒后随机下一首`);
+//   autoRandomTimer = setTimeout(() => {
+//     console.log('自动随机: 定时触发，播放随机歌曲');
+//     playRandomSong();
+//   }, delay);
+// }
 
-function cancelAutoRandom() {
-  if (autoRandomTimer) {
-    clearTimeout(autoRandomTimer);
-    autoRandomTimer = null;
-  }
-}
+// function cancelAutoRandom() {
+//   if (autoRandomTimer) {
+//     clearTimeout(autoRandomTimer);
+//     autoRandomTimer = null;
+//   }
+// }
 
 // ── NeteaseCloudMusicApi（懒加载） ──
 function getApi() {
@@ -286,7 +289,7 @@ async function fetchCover(songName, artist) {
         const s = r.body?.result?.songs?.[0];
         if (s?.al?.picUrl) {
           sendToOverlay('song:update', { name: songName, artist, coverUrl: s.al.picUrl.replace(/^http:/, 'https:'), loading: false });
-          if (s.id) { fetchLyrics(s.id); fetchPrevNext(s.id, s.al?.id); if (s.dt) scheduleAutoRandom(s.dt); }
+          if (s.id) { fetchLyrics(s.id); fetchPrevNext(s.id, s.al?.id); } // if (s.dt) scheduleAutoRandom(s.dt);
           return;
         }
       } catch (e) {}
@@ -298,7 +301,7 @@ async function fetchCover(songName, artist) {
     const s = d.result?.songs?.[0];
     if (s?.al?.picUrl) {
       sendToOverlay('song:update', { name: songName, artist, coverUrl: s.al.picUrl.replace(/^http:/, 'https:'), loading: false });
-      if (s.id) { fetchLyrics(s.id); fetchPrevNext(s.id, s.al?.id); if (s.dt) scheduleAutoRandom(s.dt); }
+      if (s.id) { fetchLyrics(s.id); fetchPrevNext(s.id, s.al?.id); } // if (s.dt) scheduleAutoRandom(s.dt);
       return;
     }
   } catch (e) {}
@@ -366,10 +369,13 @@ async function fetchLyrics(songId, offset) {
     if (lrc) {
       const parsed = parseLrc(lrc);
       currentLyrics = parsed.text;
+      currentLyricLines = parsed.lines;
       currentLyricOffset = offset || 0;
-      sendToOverlay('lyrics:update', { lyrics: parsed.text, lines: parsed.lines, offset: currentLyricOffset });
+      const totalOffset = currentLyricOffset + (settings.lyricManualOffset || 0);
+      sendToOverlay('lyrics:update', { lyrics: parsed.text, lines: parsed.lines, offset: totalOffset });
     } else {
       currentLyrics = '';
+      currentLyricLines = [];
       currentLyricOffset = 0;
       sendToOverlay('lyrics:update', { lyrics: '', lines: [], offset: 0 });
     }
@@ -458,84 +464,77 @@ async function fetchPrevNext(songId, albumId) {
 }
 
 // ── 随机播放 ──
-async function playRandomSong() {
-  cancelAutoRandom();
-  try {
-    const api = getApi();
-    if (!api || !neteaseCookie) {
-      sendToPanel('random:result', { success: false, error: '请先登录' });
-      return;
-    }
-
-    let playlistId = cachedPlaylistId;
-    let tracks = null;
-
-    // 优先使用已缓存的歌单（当前歌曲所在的歌单）
-    if (playlistId) {
-      try {
-        const detail = await api.playlist_detail({ id: playlistId, s: 2000, cookie: neteaseCookie });
-        tracks = detail.body?.playlist?.tracks || [];
-      } catch (e) {}
-    }
-
-    // 没有缓存歌单或获取失败时遍历用户歌单
-    if (!tracks || !tracks.length) {
-      if (!neteaseUid) {
-        sendToPanel('random:result', { success: false, error: '未获取到用户信息' });
-        return;
-      }
-      const r = await api.user_playlist({ uid: neteaseUid, cookie: neteaseCookie, limit: 30 });
-      const playlists = r.body?.playlist || [];
-      // 优先选"我喜欢的音乐"(specialType=5)，否则用第一个歌单
-      let targetPlaylist = playlists.find(p => p.specialType === 5);
-      if (!targetPlaylist) targetPlaylist = playlists[0];
-      if (!targetPlaylist) {
-        sendToPanel('random:result', { success: false, error: '没有找到歌单' });
-        return;
-      }
-      playlistId = targetPlaylist.id;
-      const detail = await api.playlist_detail({ id: playlistId, s: 2000, cookie: neteaseCookie });
-      tracks = detail.body?.playlist?.tracks || [];
-    }
-
-    if (!tracks || !tracks.length) {
-      sendToPanel('random:result', { success: false, error: '歌单为空' });
-      return;
-    }
-
-    // 随机挑选一首
-    const track = tracks[Math.floor(Math.random() * tracks.length)];
-    const songId = track.id;
-    const songName = track.name;
-    const artistName = (track.ar || []).map(a => a.name).join(', ');
-    console.log('随机播放:', songName, '-', artistName);
-
-    // 通过 orpheus:// 协议让网易云客户端播放
-    try {
-      await shell.openExternal(`orpheus://song/${songId}`);
-    } catch (_) {
-      // 回退：用命令行打开
-      exec(`start orpheus://song/${songId}`, (err) => {
-        if (err) console.error('orpheus 协议失败:', err.message);
-      });
-    }
-
-    // 立即更新 UI（窗口标题检测随后会自动修正）
-    if (currentSong) previousSong = { name: currentSong.song, artist: currentSong.artist };
-    lastSongKey = `${songId}:${songName}`;
-    currentSong = { song: songName, artist: artistName };
-    sendToOverlay('song:update', { name: songName, artist: artistName, coverUrl: null, loading: true });
-    sendToOverlay('song:prev-next', { previous: previousSong, next: null });
-    sendToOverlay('lyrics:update', { lyrics: '', lines: [], offset: 0 });
-    sendToPanel('now-playing', { name: songName, artist: artistName });
-    sendToPanel('random:result', { success: true });
-
-    fetchCover(songName, artistName);
-  } catch (e) {
-    console.error('随机播放错误:', e.message);
-    sendToPanel('random:result', { success: false, error: e.message });
-  }
-}
+// async function playRandomSong() {
+//   cancelAutoRandom();
+//   try {
+//     const api = getApi();
+//     if (!api || !neteaseCookie) {
+//       sendToPanel('random:result', { success: false, error: '请先登录' });
+//       return;
+//     }
+//
+//     let playlistId = cachedPlaylistId;
+//     let tracks = null;
+//
+//     if (playlistId) {
+//       try {
+//         const detail = await api.playlist_detail({ id: playlistId, s: 2000, cookie: neteaseCookie });
+//         tracks = detail.body?.playlist?.tracks || [];
+//       } catch (e) {}
+//     }
+//
+//     if (!tracks || !tracks.length) {
+//       if (!neteaseUid) {
+//         sendToPanel('random:result', { success: false, error: '未获取到用户信息' });
+//         return;
+//       }
+//       const r = await api.user_playlist({ uid: neteaseUid, cookie: neteaseCookie, limit: 30 });
+//       const playlists = r.body?.playlist || [];
+//       let targetPlaylist = playlists.find(p => p.specialType === 5);
+//       if (!targetPlaylist) targetPlaylist = playlists[0];
+//       if (!targetPlaylist) {
+//         sendToPanel('random:result', { success: false, error: '没有找到歌单' });
+//         return;
+//       }
+//       playlistId = targetPlaylist.id;
+//       const detail = await api.playlist_detail({ id: playlistId, s: 2000, cookie: neteaseCookie });
+//       tracks = detail.body?.playlist?.tracks || [];
+//     }
+//
+//     if (!tracks || !tracks.length) {
+//       sendToPanel('random:result', { success: false, error: '歌单为空' });
+//       return;
+//     }
+//
+//     const track = tracks[Math.floor(Math.random() * tracks.length)];
+//     const songId = track.id;
+//     const songName = track.name;
+//     const artistName = (track.ar || []).map(a => a.name).join(', ');
+//     console.log('随机播放:', songName, '-', artistName);
+//
+//     try {
+//       await shell.openExternal(`orpheus://song/${songId}`);
+//     } catch (_) {
+//       exec(`start orpheus://song/${songId}`, (err) => {
+//         if (err) console.error('orpheus 协议失败:', err.message);
+//       });
+//     }
+//
+//     if (currentSong) previousSong = { name: currentSong.song, artist: currentSong.artist };
+//     lastSongKey = `${songId}:${songName}`;
+//     currentSong = { song: songName, artist: artistName };
+//     sendToOverlay('song:update', { name: songName, artist: artistName, coverUrl: null, loading: true });
+//     sendToOverlay('song:prev-next', { previous: previousSong, next: null });
+//     sendToOverlay('lyrics:update', { lyrics: '', lines: [], offset: 0 });
+//     sendToPanel('now-playing', { name: songName, artist: artistName });
+//     sendToPanel('random:result', { success: true });
+//
+//     fetchCover(songName, artistName);
+//   } catch (e) {
+//     console.error('随机播放错误:', e.message);
+//     sendToPanel('random:result', { success: false, error: e.message });
+//   }
+// }
 
 function processDetectedSong(name, artist) {
   if (!name) return;
@@ -618,7 +617,7 @@ async function pollCurrentSong() {
       }
       const songDuration = s?.dt ? Math.floor(s.dt / 1000) : 0;
       if (songOffset > songDuration - 2) songOffset = 0; // 偏移超过歌曲时长则重置
-      if (s?.al?.picUrl) { sendToOverlay('song:update', { name, artist, coverUrl: s.al.picUrl.replace(/^http:/, 'https:'), loading: false }); if (s?.id) { fetchLyrics(s.id, songOffset); fetchPrevNext(s.id, s.al?.id); if (s.dt) scheduleAutoRandom(s.dt); } }
+      if (s?.al?.picUrl) { sendToOverlay('song:update', { name, artist, coverUrl: s.al.picUrl.replace(/^http:/, 'https:'), loading: false }); if (s?.id) { fetchLyrics(s.id, songOffset); fetchPrevNext(s.id, s.al?.id); } } // if (s.dt) scheduleAutoRandom(s.dt);
     } catch (e) { sendToOverlay('song:update', { name, artist, coverUrl: null, loading: false }); }
   } catch (e) {
     // 301 错误表示 Cookie 过期
@@ -703,10 +702,11 @@ function createOverlayWindow() {
     width: settings.width, height: settings.height,
     x: ox, y: oy,
     transparent: true, frame: false, alwaysOnTop: true,
-    skipTaskbar: true, resizable: false, hasShadow: false,
+    skipTaskbar: true, hasShadow: false,
     focusable: false, show: false, type: 'toolbar',
     webPreferences: { preload: path.join(__dirname, 'preload.js'), nodeIntegration: false, contextIsolation: true, sandbox: false }
   });
+  overlayWindow.setMinimumSize(100, 40);
   overlayWindow.loadFile('overlay.html');
   overlayWindow.webContents.on('did-finish-load', () => {
     sendOverlaySettings();
@@ -769,7 +769,9 @@ function createPanelWindow() {
       displayIndex: settings.displayIndex || 0, displayBounds: getDisplayBounds(),
       displays: getDisplays().map((d,i) => ({ index: i, name: `屏幕 ${i+1}`, width: d.workAreaSize.width, height: d.workAreaSize.height, x: d.workArea.x, y: d.workArea.y })),
       closeBehavior: settings.closeBehavior || 'quit',
-      showControls: settings.showControls || false, showLyrics: settings.showLyrics || false, showPrevNext: settings.showPrevNext || false
+      showControls: settings.showControls || false, showLyrics: settings.showLyrics || false, showPrevNext: settings.showPrevNext || false,
+      overlayScale: settings.overlayScale || 50,
+      lyricManualOffset: settings.lyricManualOffset || 0
     });
   });
 
@@ -810,6 +812,37 @@ function createGamepadWindow() {
     webPreferences: { preload: path.join(__dirname, 'preload.js'), nodeIntegration: false, contextIsolation: true, sandbox: false }
   });
   gamepadWindow.loadFile('gamepad.html');
+}
+
+const OVERLAY_BASE_W = 300, OVERLAY_BASE_H = 110;
+
+function resizeOverlay(w, h) {
+  if (!overlayWindow || overlayWindow.isDestroyed()) return;
+  overlayWindow.setSize(w, h);
+  settings.width = w;
+  settings.height = h;
+  debounceSave();
+  // 确保窗口不超出屏幕边界
+  const b = getDisplayBounds();
+  const [cx, cy] = overlayWindow.getPosition();
+  const clampedX = Math.max(b.x, Math.min(cx, b.x + b.width - w));
+  const clampedY = Math.max(b.y, Math.min(cy, b.y + b.height - h));
+  if (clampedX !== cx || clampedY !== cy) {
+    overlayWindow.setPosition(clampedX, clampedY);
+    settings.x = clampedX; settings.y = clampedY;
+  }
+  sendToPanel('overlay:size-updated', { width: w, height: h, scale: settings.overlayScale });
+}
+
+function applyOverlayScale(scale) {
+  if (!overlayWindow || overlayWindow.isDestroyed()) return;
+  const factor = Math.max(0.3, Math.min(3, scale / 100));
+  settings.overlayScale = scale;
+  debounceSave();
+  overlayWindow.webContents.executeJavaScript(`
+    document.getElementById('content').style.zoom = '${factor}';
+  `);
+  sendToPanel('overlay:size-updated', { width: settings.width, height: settings.height, scale });
 }
 
 // ── IPC 处理器 ──
@@ -881,9 +914,10 @@ function setupIPC() {
       const fullSize = all[index].size || b;
       // 将悬浮窗重新定位到新显示器
       if (overlayWindow && !overlayWindow.isDestroyed()) {
-        overlayWindow.setPosition(b.x + 20, b.y + Math.round((b.height - settings.height) / 2));
+        const ny = Math.max(b.y, Math.min(b.y + Math.round((b.height - settings.height) / 2), b.y + b.height - settings.height));
+        overlayWindow.setPosition(b.x + 20, ny);
         settings.x = b.x + 20;
-        settings.y = b.y + Math.round((b.height - settings.height) / 2);
+        settings.y = ny;
         sendToPanel('position:updated', { x: settings.x, y: settings.y });
       }
       // 通知面板新的显示器边界和完整尺寸（用于预设计算）
@@ -895,13 +929,17 @@ function setupIPC() {
     }
   });
 
-  // 重置悬浮窗大小
+// 重置悬浮窗大小
   ipcMain.on('overlay:reset-size', () => {
-    const defaultW = 340, defaultH = 100;
+    const defaultW = 300, defaultH = 110;
     settings.width = defaultW;
     settings.height = defaultH;
+    settings.overlayScale = 50;
     if (overlayWindow && !overlayWindow.isDestroyed()) {
       overlayWindow.setSize(defaultW, defaultH);
+      overlayWindow.webContents.executeJavaScript(`
+        document.getElementById('content').style.zoom = '0.5';
+      `);
       // 重新限制位置确保在显示范围内
       const b = getDisplayBounds();
       const [cx, cy] = overlayWindow.getPosition();
@@ -912,7 +950,30 @@ function setupIPC() {
       sendToPanel('position:updated', { x: clampedX, y: clampedY });
     }
     debounceSave();
-    sendToPanel('overlay:size-updated', { width: defaultW, height: defaultH });
+    sendToPanel('overlay:size-updated', { width: defaultW, height: defaultH, scale: 50 });
+  });
+
+  // 自定义缩放
+  ipcMain.on('overlay:set-scale', (event, { scale }) => {
+    applyOverlayScale(scale);
+    debounceSave();
+  });
+
+  // 单独设置宽高（不触发 CSS zoom）
+  ipcMain.on('overlay:set-size', (event, { width, height }) => {
+    const w = Math.max(150, Math.min(700, width));
+    const h = Math.max(50, Math.min(300, height));
+    resizeOverlay(w, h);
+    debounceSave();
+  });
+
+  // 歌词手动补偿
+  ipcMain.on('lyrics:set-offset', (event, { offset }) => {
+    settings.lyricManualOffset = offset;
+    debounceSave();
+    const total = (currentLyricOffset || 0) + offset;
+    sendToOverlay('lyrics:update', { lyrics: currentLyrics, lines: currentLyricLines, offset: total });
+    sendToPanel('lyrics:offset-updated', { offset });
   });
 
   // 状态查询
@@ -926,23 +987,24 @@ function setupIPC() {
       screenSize: getDisplayBounds(), screenFullSize: { width: fullSize.width, height: fullSize.height },
       overlaySize: { width: settings.width, height: settings.height },
       loggedIn: !!neteaseCookie, displayIndex: settings.displayIndex || 0,
-      showControls: settings.showControls || false, showLyrics: settings.showLyrics || false, showPrevNext: settings.showPrevNext || false
+      showControls: settings.showControls || false, showLyrics: settings.showLyrics || false, showPrevNext: settings.showPrevNext || false,
+      overlayScale: settings.overlayScale || 50,
+      lyricManualOffset: settings.lyricManualOffset || 0
     };
   });
   ipcMain.handle('poll:now', async () => { await pollCurrentSong(); return currentSong || { song: '暂无数据', artist: '' }; });
-  ipcMain.handle('song:play-random', async () => { await playRandomSong(); });
-  ipcMain.handle('auto-random:toggle', async (event, { enabled }) => {
-    autoRandomEnabled = !!enabled;
-    settings.autoRandom = autoRandomEnabled;
-    debounceSave();
-    if (!autoRandomEnabled) cancelAutoRandom();
-    else if (currentSong) {
-      // 如果已开启且当前有歌曲，尝试获取时长并调度
-      console.log('自动随机已开启');
-    }
-    sendToPanel('auto-random:status', { enabled: autoRandomEnabled });
-  });
-  ipcMain.handle('auto-random:status', async () => ({ enabled: autoRandomEnabled }));
+  // ipcMain.handle('song:play-random', async () => { await playRandomSong(); });
+  // ipcMain.handle('auto-random:toggle', async (event, { enabled }) => {
+  //   autoRandomEnabled = !!enabled;
+  //   settings.autoRandom = autoRandomEnabled;
+  //   debounceSave();
+  //   if (!autoRandomEnabled) cancelAutoRandom();
+  //   else if (currentSong) {
+  //     console.log('自动随机已开启');
+  //   }
+  //   sendToPanel('auto-random:status', { enabled: autoRandomEnabled });
+  // });
+  // ipcMain.handle('auto-random:status', async () => ({ enabled: autoRandomEnabled }));
 
   // 登录
   ipcMain.handle('login:submit', async (event, { phone, password }) => { return await doLogin(phone, password); });
@@ -1108,12 +1170,18 @@ app.whenReady().then(() => {
     if (!restored && settings.phone && settings.password) await tryAutoLogin();
     sendToGamepad('bindings:update', bindings.gamepad || {});
     // 恢复自动随机状态
-    if (settings.autoRandom) {
-      autoRandomEnabled = true;
-      sendToPanel('auto-random:status', { enabled: true });
-      console.log('自动随机已恢复');
-    }
+    // if (settings.autoRandom) {
+    //   autoRandomEnabled = true;
+    //   sendToPanel('auto-random:status', { enabled: true });
+    //   console.log('自动随机已恢复');
+    // }
   }, 500);
+
+  // 恢复缩放
+  setTimeout(() => {
+    applyOverlayScale(settings.overlayScale || 50);
+    console.log('缩放已恢复:', (settings.overlayScale || 50) + '%');
+  }, 800);
 });
 
 app.on('window-all-closed', () => {

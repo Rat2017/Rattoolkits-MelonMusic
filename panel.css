@@ -286,12 +286,12 @@ html, body {
 .ctrl-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
 #ctrl-content {
-  padding: 2px 12px 0;
+  padding: 2px 8px 0;
   overflow-y: hidden;
 }
 
 .ctrl-panel { display: none; }
-.ctrl-panel.active { display: block; }
+.ctrl-panel.active { display: block; padding-bottom: 5px; }
 
 .ctrl-row {
   display: flex;
@@ -305,9 +305,14 @@ html, body {
   white-space: nowrap;
 }
 
+.ctrl-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 5px 0 4px;
+}
+
 .ctrl-slider {
   flex: 1;
-  max-width: 200px;
   -webkit-appearance: none;
   appearance: none;
   height: 3px;
@@ -327,7 +332,7 @@ html, body {
 .ctrl-val {
   font-size: 10px;
   color: var(--text-dim);
-  min-width: 30px;
+  min-width: 36px;
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -360,15 +365,24 @@ html, body {
 /* ── 位置 + 预设布局 ── */
 .pos-preset-split {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   align-items: flex-start;
 }
 .pos-left {
   flex: 1;
   min-width: 0;
 }
+.pos-middle {
+  flex: 1;
+  min-width: 0;
+}
 .pos-right {
   flex-shrink: 0;
+  width: 150px;
+}
+.pos-lyrics {
+  flex: 1;
+  min-width: 0;
 }
 
 /* ── 预设按钮 ── */
@@ -433,25 +447,24 @@ html, body {
   flex-shrink: 0;
 }
 .media-btn {
-  width: 28px;
-  height: 24px;
+  width: 30px;
+  height: 26px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: transparent;
-  color: rgba(255,255,255,0.6);
-  border: none;
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.7);
+  border: 1px solid rgba(255,255,255,0.12);
   border-radius: 4px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 13px;
   transition: all 0.12s;
   line-height: 1;
 }
-.media-btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
-.media-btn-play { background: var(--accent); color: #000; width: 30px; font-size: 12px; }
-.media-btn-play:hover { background: var(--accent-hover); color: #000; }
-.media-btn-random { font-size: 10px; width: 34px; color: rgba(255,255,255,0.5); }
-.media-btn-random:hover { color: var(--accent); }
+.media-btn:hover { background: rgba(255,255,255,0.16); border-color: rgba(255,255,255,0.25); color: #fff; }
+.media-btn-play { background: var(--accent); color: #000; border-color: var(--accent); }
+.media-btn-play:hover { background: var(--accent-hover); color: #000; border-color: var(--accent-hover); }
+.media-btn-random { width: 30px; font-size: 11px; }
 
 .media-info {
   flex: 1;

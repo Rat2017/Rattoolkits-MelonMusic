@@ -21,7 +21,7 @@ let lyricOffset = 0;       // 歌词同步偏移量（秒）
 document.getElementById('ctrl-prev').addEventListener('click', () => window.api.controlAction('prev'));
 document.getElementById('ctrl-playpause').addEventListener('click', () => window.api.controlAction('playpause'));
 document.getElementById('ctrl-next').addEventListener('click', () => window.api.controlAction('next'));
-document.getElementById('ctrl-random').addEventListener('click', () => window.api.playRandom());
+// document.getElementById('ctrl-random').addEventListener('click', () => window.api.playRandom());
 
 // ---- 歌词同步 ----
 function stopLyricsSync() {
@@ -67,7 +67,7 @@ window.api.onOverlaySettings((data) => {
 
 function updateOverlayUI() {
   controlsEl.style.display = showControls ? 'flex' : 'none';
-  lyricsEl.style.right = showControls ? '80px' : '12px';
+  lyricsEl.style.right = showControls ? '90px' : '12px';
   if (!showLyrics) { stopLyricsSync(); lyricsEl.style.display = 'none'; }
   else { lyricsEl.style.display = timedLyrics.length > 0 ? 'block' : 'none'; startLyricsSync(); }
   prevNameEl.style.display = showPrevNext && prevNameEl.textContent ? 'block' : 'none';
