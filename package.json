@@ -13,7 +13,7 @@
   },
   "build": {
     "appId": "com.rattoolkits.melonmusic",
-    "productName": "MelonMusic",
+    "productName": "Rattoolkits-MelonMusic",
     "directories": {
       "output": "dist"
     },
