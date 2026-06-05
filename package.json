@@ -2,6 +2,7 @@
   "name": "rattoolkits-melonmusic",
   "version": "1.0.0",
   "description": "Rattoolkits-MelonMusic - 网易云音乐桌面悬浮窗",
+  "license": "AGPL-3.0",
   "main": "main.js",
   "scripts": {
     "start": "powershell -NoProfile -ExecutionPolicy Bypass -File launch.ps1 .",

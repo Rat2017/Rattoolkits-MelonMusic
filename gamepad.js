@@ -2,7 +2,7 @@
 let bindings = {};
 let lastButtonStates = {};
 let listeningForBinding = false;
-let listeningButtonIndex = null;
+let pollInterval = null;
 
 function pollGamepads() {
   const connected = navigator.getGamepads();
@@ -21,15 +21,19 @@ function pollGamepads() {
       lastButtonStates[key] = isPressed;
     });
   }
+}
 
-  requestAnimationFrame(pollGamepads);
+function startPolling() {
+  if (pollInterval) return;
+  pollGamepads(); // 立即执行一次
+  pollInterval = setInterval(pollGamepads, 50); // 50ms 轮询，确保快速响应
 }
 
 function handleButtonPress(gamepadIndex, buttonIndex) {
   // 如果正在监听绑定，则将按键结果发回面板
   if (listeningForBinding) {
     listeningForBinding = false;
-    window.api.sendGamepadButton(buttonIndex);
+    window.api.sendGamepadButton(gamepadIndex, buttonIndex);
     return;
   }
 
@@ -44,6 +48,8 @@ function handleButtonPress(gamepadIndex, buttonIndex) {
 // ── IPC 监听器 ──
 window.api.onBindingsUpdate((data) => {
   bindings = data || {};
+  // 有绑定信息后确保轮询已启动
+  startPolling();
 });
 
 window.api.onStartBinding(() => {
@@ -54,19 +60,22 @@ window.api.onStartBinding(() => {
 window.addEventListener('gamepadconnected', (e) => {
   const gp = e.gamepad;
   window.api.sendGamepadConnected(gp.id, gp.index);
-  pollGamepads();
+  startPolling();
 });
 
 window.addEventListener('gamepaddisconnected', (e) => {
   window.api.sendGamepadDisconnected(e.gamepad.index);
 });
 
-// 初始检测：检查是否已有已连接的手柄
+// 初始检测：检查是否已有已连接的手柄并启动轮询
 setTimeout(() => {
   const gps = navigator.getGamepads();
+  let found = false;
   for (const gp of gps) {
     if (gp) {
       window.api.sendGamepadConnected(gp.id, gp.index);
+      found = true;
     }
   }
+  if (found) startPolling();
 }, 500);

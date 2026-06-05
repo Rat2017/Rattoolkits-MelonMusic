@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('api', {
   onGamepadBindingResult: (cb) => { const h = (_, d) => cb(d); ipcRenderer.on('gamepad:binding-result', h); return () => ipcRenderer.removeListener('gamepad:binding-result', h); },
   onBindingsSaved: (cb) => { const h = (_, d) => cb(d); ipcRenderer.on('bindings:saved', h); return () => ipcRenderer.removeListener('bindings:saved', h); },
   onDisplayBounds: (cb) => { const h = (_, d) => cb(d); ipcRenderer.on('display:bounds', h); return () => ipcRenderer.removeListener('display:bounds', h); },
+  onOverlaySizeUpdated: (cb) => { const h = (_, d) => cb(d); ipcRenderer.on('overlay:size-updated', h); return () => ipcRenderer.removeListener('overlay:size-updated', h); },
 
   // 操作
   changePosition: (x, y) => ipcRenderer.send('position:change', { x, y }),
@@ -27,7 +28,7 @@ contextBridge.exposeInMainWorld('api', {
   // 手柄专用
   onBindingsUpdate: (cb) => { const h = (_, d) => cb(d); ipcRenderer.on('bindings:update', h); return () => ipcRenderer.removeListener('bindings:update', h); },
   onStartBinding: (cb) => { const h = () => cb(); ipcRenderer.on('start-binding', h); return () => ipcRenderer.removeListener('start-binding', h); },
-  sendGamepadButton: (i) => ipcRenderer.send('gamepad:button-pressed', { buttonIndex: i }),
+  sendGamepadButton: (gi, bi) => ipcRenderer.send('gamepad:button-pressed', { gamepadIndex: gi, buttonIndex: bi }),
   sendGamepadConnected: (id, i) => ipcRenderer.send('gamepad:connected', { id, index: i }),
   sendGamepadDisconnected: (i) => ipcRenderer.send('gamepad:disconnected', { index: i }),
   sendGamepadAction: (a) => ipcRenderer.send('gamepad:action', { action: a }),
@@ -42,6 +43,9 @@ contextBridge.exposeInMainWorld('api', {
   // 显示器
   listDisplays: () => ipcRenderer.invoke('displays:list'),
   sendDisplayChange: (index) => ipcRenderer.send('display:set', { index }),
+
+  // 重置悬浮窗大小
+  resetOverlaySize: () => ipcRenderer.send('overlay:reset-size'),
 
   // 状态
   getStatus: () => ipcRenderer.invoke('get:status'),

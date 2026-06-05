@@ -351,6 +351,14 @@ html, body {
   cursor: pointer;
 }
 .ctrl-check input { accent-color: var(--accent); }
+.reset-size-btn {
+  padding: 2px 8px; font-size: 9px;
+  background: var(--slider-track); color: var(--text-dim);
+  border: 1px solid var(--border); border-radius: 3px;
+  cursor: pointer; margin-left: auto;
+  transition: all 0.15s;
+}
+.reset-size-btn:hover { background: var(--accent); color: #000; border-color: var(--accent); }
 
 /* ── 位置 + 预设布局 ── */
 .pos-preset-split {

@@ -194,6 +194,7 @@ opacitySlider.addEventListener('input', () => { opacityDisplay.textContent = opa
 visibilityCheck.addEventListener('change', () => window.api.toggleVisibility(visibilityCheck.checked));
 closeQuitCheck.addEventListener('change', () => { window.api.setCloseBehavior(closeQuitCheck.checked ? 'quit' : 'minimize'); });
 displaySelect.addEventListener('change', function() { window.api.sendDisplayChange(parseInt(this.value)); });
+document.getElementById('reset-size-btn').addEventListener('click', () => window.api.resetOverlaySize());
 
 // ── 媒体按钮 ──
 document.getElementById('btn-prev').addEventListener('click', () => window.api.controlAction('prev'));
@@ -253,16 +254,34 @@ document.addEventListener('click', (e) => {
   if (capturingAction) document.querySelectorAll('.bind-edit-btn.recording').forEach(b => b.classList.remove('recording'));
   capturingAction = btn.dataset.action;
   btn.classList.add('recording'); btn.textContent = '...';
-  document.querySelector('#ctrl-bind .capture-hint').style.display = 'block';
+  const hint = document.querySelector('#ctrl-bind .capture-hint');
+  hint.style.display = 'block';
+  hint.textContent = '按下按键组合...';
 });
+
+// 修饰键列表（按下这些键时不完成绑定，等待组合键按下）
+const MODIFIER_KEYS = ['Control', 'Alt', 'Shift', 'Meta'];
 
 document.addEventListener('keydown', (e) => {
   if (!capturingAction) return;
   e.preventDefault(); e.stopPropagation();
+
+  // 如果按下的是修饰键（Ctrl/Alt/Shift/Meta），等待更多按键
+  if (MODIFIER_KEYS.includes(e.key)) {
+    const parts = [];
+    if (e.ctrlKey || e.metaKey) parts.push('Ctrl');
+    if (e.altKey) parts.push('Alt');
+    if (e.shiftKey) parts.push('Shift');
+    const hint = document.querySelector('#ctrl-bind .capture-hint');
+    hint.textContent = `按下按键组合... (${parts.join('+')}+)`;
+    return;
+  }
+
   const parts = [];
   if (e.ctrlKey || e.metaKey) parts.push('Ctrl');
   if (e.altKey) parts.push('Alt');
   if (e.shiftKey) parts.push('Shift');
+
   let key = '';
   if (e.key === ' ') key = 'Space';
   else if (e.key === 'ArrowLeft') key = 'Left';
@@ -271,21 +290,44 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'ArrowDown') key = 'Down';
   else if (e.key === 'Enter') key = 'Enter';
   else if (e.key === 'Escape') { capturingAction = null; document.querySelectorAll('.bind-edit-btn').forEach(b => b.classList.remove('recording')); document.querySelector('#ctrl-bind .capture-hint').style.display = 'none'; return; }
+  else if (e.key === 'Tab') key = 'Tab';
+  else if (e.key === 'Backspace') key = 'Backspace';
+  else if (e.key === 'Delete') key = 'Delete';
+  else if (e.key === 'Insert') key = 'Insert';
+  else if (e.key === 'Home') key = 'Home';
+  else if (e.key === 'End') key = 'End';
+  else if (e.key === 'PageUp') key = 'PageUp';
+  else if (e.key === 'PageDown') key = 'PageDown';
+  else if (e.key.startsWith('F') && e.key.length <= 3 && !isNaN(e.key.slice(1))) key = e.key;
+  else if (e.key === '+' || e.key === '=') key = 'Plus';
   else if (e.key.length === 1) key = e.key.toUpperCase();
   else key = e.key;
   if (e.key === 'MediaNextTrack' || e.key === 'MediaPreviousTrack' || e.key === 'MediaPlayPause') key = e.key;
   if (!key || key === 'Escape') { capturingAction = null; document.querySelectorAll('.bind-edit-btn').forEach(b => b.classList.remove('recording')); document.querySelector('#ctrl-bind .capture-hint').style.display = 'none'; return; }
+
   const accelerator = parts.length > 0 ? parts.join('+') + '+' + key : key;
   const action = capturingAction;
+
+  // 拒绝纯修饰键绑定
+  if (['Ctrl','Alt','Shift','Ctrl+Shift','Ctrl+Alt','Alt+Shift','Meta','Ctrl+Meta'].includes(accelerator)) {
+    capturingAction = null; document.querySelectorAll('.bind-edit-btn').forEach(b => b.classList.remove('recording')); document.querySelector('#ctrl-bind .capture-hint').style.display = 'none'; return;
+  }
+
+  // 移除该操作的旧绑定，以及该快捷键的旧绑定
   for (const [k, v] of Object.entries(bindings.keyboard || {})) { if (v === action) delete bindings.keyboard[k]; }
   delete bindings.keyboard[accelerator];
-  if (['Ctrl','Alt','Shift','Ctrl+Shift','Ctrl+Alt','Alt+Shift'].includes(accelerator)) { capturingAction = null; document.querySelectorAll('.bind-edit-btn').forEach(b => b.classList.remove('recording')); document.querySelector('#ctrl-bind .capture-hint').style.display = 'none'; return; }
   bindings.keyboard[accelerator] = action;
   window.api.saveBindings(bindings);
+
+  // 显示反馈
+  const actionLabel = ACTION_LABELS[action] || action;
+  const hint = document.querySelector('#ctrl-bind .capture-hint');
+  hint.textContent = `已绑定: ${accelerator} → ${actionLabel}`;
+  setTimeout(() => { hint.style.display = 'none'; }, 1500);
+
   renderKeyboard(bindings.keyboard);
   capturingAction = null;
   document.querySelectorAll('.bind-edit-btn').forEach(b => b.classList.remove('recording'));
-  document.querySelector('#ctrl-bind .capture-hint').style.display = 'none';
 });
 
 // 鼠标按键
@@ -347,7 +389,8 @@ window.api.onGamepadBindingResult(async (data) => {
   isBinding = false; bindHint.style.display = 'none'; bindBtn.textContent = '绑定按键';
   const action = prompt(`按键 ${data.buttonIndex} 已按下！输入操作 (next/prev/playpause):`, 'next');
   if (action && ACTIONS.includes(action)) {
-    bindings.gamepad[`0:${data.buttonIndex}`] = action;
+    const gpIdx = data.gamepadIndex ?? 0;
+    bindings.gamepad[`${gpIdx}:${data.buttonIndex}`] = action;
     window.api.saveBindings(bindings); renderGamepad(bindings.gamepad);
   }
 });
@@ -422,6 +465,12 @@ window.api.onDisplayBounds((data) => {
     dx = Math.max(0, Math.min(dx, r.width - icon.offsetWidth));
     dy = Math.max(0, Math.min(dy, r.height - icon.offsetHeight));
     icon.style.left = dx + 'px'; icon.style.top = dy + 'px';
+  }
+});
+window.api.onOverlaySizeUpdated((data) => {
+  if (data) {
+    overlayW = data.width || overlayW;
+    overlayH = data.height || overlayH;
   }
 });
 

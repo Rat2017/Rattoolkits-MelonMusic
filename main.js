@@ -535,7 +535,7 @@ function setupIPC() {
   ipcMain.on('gamepad:action', (event, { action }) => simulateMediaKey(action));
   ipcMain.on('gamepad:connected', (event, { id, index }) => sendToPanel('gamepad:status', { connected: true, id, index }));
   ipcMain.on('gamepad:disconnected', (event, { index }) => sendToPanel('gamepad:status', { connected: false, index }));
-  ipcMain.on('gamepad:button-pressed', (event, { buttonIndex }) => sendToPanel('gamepad:binding-result', { buttonIndex }));
+  ipcMain.on('gamepad:button-pressed', (event, { gamepadIndex, buttonIndex }) => sendToPanel('gamepad:binding-result', { gamepadIndex, buttonIndex }));
 
   // 快捷键绑定
   ipcMain.handle('bindings:load', () => bindings);
@@ -591,6 +591,26 @@ function setupIPC() {
       });
       debounceSave();
     }
+  });
+
+  // 重置悬浮窗大小
+  ipcMain.on('overlay:reset-size', () => {
+    const defaultW = 340, defaultH = 100;
+    settings.width = defaultW;
+    settings.height = defaultH;
+    if (overlayWindow && !overlayWindow.isDestroyed()) {
+      overlayWindow.setSize(defaultW, defaultH);
+      // 重新限制位置确保在显示范围内
+      const b = getDisplayBounds();
+      const [cx, cy] = overlayWindow.getPosition();
+      const clampedX = Math.max(b.x, Math.min(cx, b.x + b.width - defaultW));
+      const clampedY = Math.max(b.y, Math.min(cy, b.y + b.height - defaultH));
+      overlayWindow.setPosition(clampedX, clampedY);
+      settings.x = clampedX; settings.y = clampedY;
+      sendToPanel('position:updated', { x: clampedX, y: clampedY });
+    }
+    debounceSave();
+    sendToPanel('overlay:size-updated', { width: defaultW, height: defaultH });
   });
 
   // 状态查询
