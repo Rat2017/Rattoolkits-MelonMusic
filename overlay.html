@@ -12,9 +12,18 @@
       <div id="loading-spinner" style="display:none"></div>
     </div>
     <div id="info">
+      <div id="prev-name" class="prev-next-text"></div>
       <div id="song-name">等待音乐...</div>
       <div id="artist-name"></div>
+      <div id="next-name" class="prev-next-text"></div>
     </div>
+    <div id="controls" class="overlay-controls" style="display:none">
+      <button class="ctrl-btn" id="ctrl-prev" title="上一首">⏮</button>
+      <button class="ctrl-btn" id="ctrl-playpause" title="播放/暂停">⏯</button>
+      <button class="ctrl-btn" id="ctrl-next" title="下一首">⏭</button>
+      <button class="ctrl-btn ctrl-btn-random" id="ctrl-random" title="随机播放">随机</button>
+    </div>
+    <div id="lyrics" class="overlay-lyrics" style="display:none"></div>
   </div>
   <script src="overlay.js"></script>
 </body>

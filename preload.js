@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('api', {
   onPositionUpdated: (cb) => { const h = (_, d) => cb(d); ipcRenderer.on('position:updated', h); return () => ipcRenderer.removeListener('position:updated', h); },
   onInitState: (cb) => { const h = (_, d) => cb(d); ipcRenderer.on('init:state', h); return () => ipcRenderer.removeListener('init:state', h); },
   onNowPlaying: (cb) => { const h = (_, d) => cb(d); ipcRenderer.on('now-playing', h); return () => ipcRenderer.removeListener('now-playing', h); },
+  onPrevNext: (cb) => { const h = (_, d) => cb(d); ipcRenderer.on('song:prev-next', h); return () => ipcRenderer.removeListener('song:prev-next', h); },
 
   // 手柄
   onGamepadStatus: (cb) => { const h = (_, d) => cb(d); ipcRenderer.on('gamepad:status', h); return () => ipcRenderer.removeListener('gamepad:status', h); },
@@ -19,6 +20,13 @@ contextBridge.exposeInMainWorld('api', {
   changeOpacity: (opacity) => ipcRenderer.send('opacity:change', { opacity }),
   toggleVisibility: (visible) => ipcRenderer.send('visibility:toggle', { visible }),
   controlAction: (action) => ipcRenderer.send('control:action', { action }),
+
+  // 悬浮窗设置
+  onOverlaySettings: (cb) => { const h = (_, d) => cb(d); ipcRenderer.on('overlay:settings', h); return () => ipcRenderer.removeListener('overlay:settings', h); },
+  onLyricsUpdate: (cb) => { const h = (_, d) => cb(d); ipcRenderer.on('lyrics:update', h); return () => ipcRenderer.removeListener('lyrics:update', h); },
+  setShowControls: (show) => ipcRenderer.send('overlay:show-controls', { show }),
+  setShowLyrics: (show) => ipcRenderer.send('overlay:show-lyrics', { show }),
+  setShowPrevNext: (show) => ipcRenderer.send('overlay:show-prevnext', { show }),
 
   // 快捷键绑定（统一系统）
   loadBindings: () => ipcRenderer.invoke('bindings:load'),
@@ -57,6 +65,15 @@ contextBridge.exposeInMainWorld('api', {
   onLoginStatus: (cb) => { const h = (_, d) => cb(d); ipcRenderer.on('login:status', h); return () => ipcRenderer.removeListener('login:status', h); },
 
   // 短信验证码
+  // 随机播放
+  playRandom: () => ipcRenderer.invoke('song:play-random'),
+  onRandomResult: (cb) => { const h = (_, d) => cb(d); ipcRenderer.on('random:result', h); return () => ipcRenderer.removeListener('random:result', h); },
+
+  // 自动随机
+  setAutoRandom: (enabled) => ipcRenderer.invoke('auto-random:toggle', { enabled }),
+  getAutoRandom: () => ipcRenderer.invoke('auto-random:status'),
+  onAutoRandomStatus: (cb) => { const h = (_, d) => cb(d); ipcRenderer.on('auto-random:status', h); return () => ipcRenderer.removeListener('auto-random:status', h); },
+
   smsSend: (phone) => ipcRenderer.invoke('sms:send', { phone }),
   smsLogin: (phone, captcha) => ipcRenderer.invoke('sms:login', { phone, captcha }),
 

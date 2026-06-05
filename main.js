@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, globalShortcut, screen, Tray, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, globalShortcut, screen, Tray, Menu, nativeImage, shell } = require('electron');
 const path = require('path');
 const { exec } = require('child_process');
 const fs = require('fs');
@@ -10,20 +10,28 @@ let overlayWindow = null;       // 悬浮窗窗口
 let panelWindow = null;         // 控制面板窗口
 let gamepadWindow = null;       // 手柄后台窗口
 let currentSong = null;         // 当前歌曲信息
+let previousSong = null;        // 上一曲
+let nextSong = null;            // 下一曲
 let neteaseCookie = null;       // 网易云登录 Cookie
 let neteaseUid = null;          // 网易云用户 ID
 let detectTimer = null;         // 检测定时器
 let isDetecting = false;        // 是否正在检测歌曲
 let lastSongKey = '';           // 上次检测到的歌曲标识（防重复）
+const detectedSongs = new Set(); // 已检测过的歌曲 key，防 API 返回旧数据
 let emptyPollCount = 0;         // 空轮询计数
 let lastWinTitle = '';          // 上次窗口标题
-const WIN_TITLE_INTERVAL = 2000; // 窗口标题轮询间隔（毫秒）
+let currentLyrics = '';        // 当前歌词文本
+let currentLyricOffset = 0;    // 歌词同步偏移量（秒）
+const WIN_TITLE_INTERVAL = 800; // 窗口标题轮询间隔（毫秒）
 
 let tray = null;
 let settings = {
-  opacity: 1, visible: true, x: 20, y: 200, width: 340, height: 100,
+  opacity: 1, visible: true, x: 20, y: 200, width: 360, height: 140,
   phone: '', password: '', closeBehavior: 'quit',
-  displayIndex: 0
+  displayIndex: 0,
+  showControls: false, showLyrics: false, showPrevNext: false,
+  autoRandom: false,
+  savedCookie: '', savedUid: null
 };
 
 // 默认键盘快捷键映射
@@ -43,6 +51,28 @@ let bindings = {
 };
 
 const ACTIONS = ['next', 'prev', 'playpause'];
+
+// ── 自动随机播放 ──
+let autoRandomEnabled = false;
+let autoRandomTimer = null;
+
+function scheduleAutoRandom(durationMs) {
+  cancelAutoRandom();
+  if (!autoRandomEnabled || !durationMs || durationMs <= 0) return;
+  const delay = Math.max(5000, durationMs + 2000); // 至少5秒，歌曲时长+2秒缓冲
+  console.log(`自动随机: ${Math.round(delay/1000)}秒后随机下一首`);
+  autoRandomTimer = setTimeout(() => {
+    console.log('自动随机: 定时触发，播放随机歌曲');
+    playRandomSong();
+  }, delay);
+}
+
+function cancelAutoRandom() {
+  if (autoRandomTimer) {
+    clearTimeout(autoRandomTimer);
+    autoRandomTimer = null;
+  }
+}
 
 // ── NeteaseCloudMusicApi（懒加载） ──
 function getApi() {
@@ -246,7 +276,7 @@ function parseWindowTitle(title) {
 
 function scheduleWinTitlePoll() { setTimeout(pollWindowTitle, WIN_TITLE_INTERVAL); }
 
-// ── 封面获取 / 歌曲处理 ──
+// ── 封面获取 / 歌曲处理 / 歌词 ──
 async function fetchCover(songName, artist) {
   try {
     const api = getApi();
@@ -254,7 +284,11 @@ async function fetchCover(songName, artist) {
       try {
         const r = await api.cloudsearch({ keywords: `${songName} ${artist}`, limit: 1, type: 1, cookie: neteaseCookie });
         const s = r.body?.result?.songs?.[0];
-        if (s?.al?.picUrl) { sendToOverlay('song:update', { name: songName, artist, coverUrl: s.al.picUrl.replace(/^http:/, 'https:'), loading: false }); return; }
+        if (s?.al?.picUrl) {
+          sendToOverlay('song:update', { name: songName, artist, coverUrl: s.al.picUrl.replace(/^http:/, 'https:'), loading: false });
+          if (s.id) { fetchLyrics(s.id); fetchPrevNext(s.id, s.al?.id); if (s.dt) scheduleAutoRandom(s.dt); }
+          return;
+        }
       } catch (e) {}
     }
     const res = await fetch(`https://music.163.com/api/cloudsearch/pc?s=${encodeURIComponent(songName + ' ' + artist)}&offset=0&limit=3&type=1`, {
@@ -262,19 +296,263 @@ async function fetchCover(songName, artist) {
     });
     const d = await res.json();
     const s = d.result?.songs?.[0];
-    if (s?.al?.picUrl) { sendToOverlay('song:update', { name: songName, artist, coverUrl: s.al.picUrl.replace(/^http:/, 'https:'), loading: false }); return; }
+    if (s?.al?.picUrl) {
+      sendToOverlay('song:update', { name: songName, artist, coverUrl: s.al.picUrl.replace(/^http:/, 'https:'), loading: false });
+      if (s.id) { fetchLyrics(s.id); fetchPrevNext(s.id, s.al?.id); if (s.dt) scheduleAutoRandom(s.dt); }
+      return;
+    }
   } catch (e) {}
   sendToOverlay('song:update', { name: songName, artist, coverUrl: null, loading: false });
 }
 
+function parseLrc(lrcText) {
+  if (!lrcText) return { text: '', lines: [] };
+  const raw = lrcText.split('\n');
+  const timed = [];
+  for (const line of raw) {
+    // 提取所有时间戳 [mm:ss.xx] 或 [mm:ss.xxx]
+    const stamps = [...line.matchAll(/\[(\d{2}):(\d{2})[\.\d]*\]/g)];
+    // 提取时间戳后面的文本
+    const text = line.replace(/\[(\d{2}):(\d{2})[\.\d]*\]/g, '').trim();
+    if (!text) continue;
+    for (const s of stamps) {
+      const seconds = parseInt(s[1]) * 60 + parseFloat(s[2]);
+      timed.push({ time: seconds, text });
+    }
+  }
+  timed.sort((a, b) => a.time - b.time);
+  // 去重：相同时刻的相同文本只保留一次
+  const unique = [];
+  for (const item of timed) {
+    const prev = unique[unique.length - 1];
+    if (!prev || prev.time !== item.time || prev.text !== item.text) unique.push(item);
+  }
+  return { text: unique.map(l => l.text).join('\n'), lines: unique };
+}
+
+async function fetchLyrics(songId, offset) {
+  try {
+    const api = getApi();
+    let lrc = '';
+    if (api && neteaseCookie) {
+      try {
+        const r = await api.lyric({ id: songId, cookie: neteaseCookie });
+        lrc = r.body?.lrc?.lyric || '';
+      } catch (e) {}
+    }
+    if (!lrc) {
+      try {
+        const res = await fetch(`https://music.163.com/api/song/lyric?id=${songId}&lv=-1&kv=-1&tv=-1`, {
+          headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://music.163.com/' }
+        });
+        const d = await res.json();
+        lrc = d.lrc?.lyric || d.tlyric?.lyric || '';
+      } catch (e) {}
+    }
+    // 如果没有传入 offset 但已登录，尝试从 recent_listen_list 获取播放时间
+    if (!offset && api && neteaseCookie) {
+      try {
+        const r = await api.recent_listen_list({ cookie: neteaseCookie });
+        const items = r.body?.data?.list || r.body?.data || [];
+        if (items.length) {
+          const pt = items[0].lastPlayTime || items[0].playTime;
+          if (pt) {
+            const elapsed = (Date.now() - pt) / 1000;
+            offset = (elapsed > 0 && elapsed < 86400) ? elapsed : 0;
+          }
+        }
+      } catch (e) {}
+    }
+    if (lrc) {
+      const parsed = parseLrc(lrc);
+      currentLyrics = parsed.text;
+      currentLyricOffset = offset || 0;
+      sendToOverlay('lyrics:update', { lyrics: parsed.text, lines: parsed.lines, offset: currentLyricOffset });
+    } else {
+      currentLyrics = '';
+      currentLyricOffset = 0;
+      sendToOverlay('lyrics:update', { lyrics: '', lines: [], offset: 0 });
+    }
+  } catch (e) {
+    currentLyrics = '';
+    currentLyricOffset = 0;
+    sendToOverlay('lyrics:update', { lyrics: '', lines: [], offset: 0 });
+  }
+}
+
+let cachedPlaylistId = null;
+
+async function findSongInPlaylists(songId, api) {
+  if (!neteaseUid) return null;
+  try {
+    const r = await api.user_playlist({ uid: neteaseUid, cookie: neteaseCookie, limit: 30 });
+    const playlists = r.body?.playlist || [];
+    if (cachedPlaylistId) {
+      const cached = playlists.find(p => p.id === cachedPlaylistId);
+      if (cached) {
+        const detail = await api.playlist_detail({ id: cached.id, s: 2000, cookie: neteaseCookie });
+        const tracks = detail.body?.playlist?.tracks || [];
+        const idx = tracks.findIndex(t => t.id === songId);
+        if (idx !== -1) return { tracks, idx };
+      }
+    }
+    for (const pl of playlists) {
+      // 跳过超大歌单，"我喜欢的音乐" (specialType=5) 不受限
+      if (pl.trackCount > 5000 && pl.specialType !== 5) continue;
+      const detail = await api.playlist_detail({ id: pl.id, s: 2000, cookie: neteaseCookie });
+      const tracks = detail.body?.playlist?.tracks || [];
+      const idx = tracks.findIndex(t => t.id === songId);
+      if (idx !== -1) {
+        cachedPlaylistId = pl.id;
+        return { tracks, idx };
+      }
+    }
+  } catch (e) {}
+  return null;
+}
+
+async function fetchPrevNext(songId, albumId) {
+  if (!songId) return;
+  try {
+    let tracks = null;
+    let idx = -1;
+
+    const api = getApi();
+    if (api && neteaseCookie) {
+      const result = await findSongInPlaylists(songId, api);
+      if (result) {
+        tracks = result.tracks;
+        idx = result.idx;
+      }
+    }
+
+    if (!tracks && albumId) {
+      if (api) {
+        try {
+          const r = await api.album({ id: albumId, cookie: neteaseCookie || '' });
+          tracks = r.body?.songs || [];
+        } catch (e) {}
+      }
+      if (!tracks || !tracks.length) {
+        try {
+          const res = await fetch(`https://music.163.com/api/v1/album/${albumId}`, {
+            headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://music.163.com/' }
+          });
+          const d = await res.json();
+          tracks = d.songs || d.album?.songs || [];
+        } catch (e) {}
+      }
+      if (tracks && tracks.length) {
+        idx = tracks.findIndex(t => t.id === songId);
+      }
+    }
+
+    if (!tracks || !tracks.length || idx === -1) return;
+    const nxt = idx < tracks.length - 1 ? { name: tracks[idx+1].name, artist: (tracks[idx+1].ar||[]).map(a=>a.name).join(',') } : null;
+    nextSong = nxt;
+    sendToOverlay('song:prev-next', { previous: previousSong, next: nxt });
+    sendToPanel('prev-next', { previous: previousSong, next: nxt });
+  } catch (e) {
+    console.log('fetchPrevNext 错误:', e.message);
+  }
+}
+
+// ── 随机播放 ──
+async function playRandomSong() {
+  cancelAutoRandom();
+  try {
+    const api = getApi();
+    if (!api || !neteaseCookie) {
+      sendToPanel('random:result', { success: false, error: '请先登录' });
+      return;
+    }
+
+    let playlistId = cachedPlaylistId;
+    let tracks = null;
+
+    // 优先使用已缓存的歌单（当前歌曲所在的歌单）
+    if (playlistId) {
+      try {
+        const detail = await api.playlist_detail({ id: playlistId, s: 2000, cookie: neteaseCookie });
+        tracks = detail.body?.playlist?.tracks || [];
+      } catch (e) {}
+    }
+
+    // 没有缓存歌单或获取失败时遍历用户歌单
+    if (!tracks || !tracks.length) {
+      if (!neteaseUid) {
+        sendToPanel('random:result', { success: false, error: '未获取到用户信息' });
+        return;
+      }
+      const r = await api.user_playlist({ uid: neteaseUid, cookie: neteaseCookie, limit: 30 });
+      const playlists = r.body?.playlist || [];
+      // 优先选"我喜欢的音乐"(specialType=5)，否则用第一个歌单
+      let targetPlaylist = playlists.find(p => p.specialType === 5);
+      if (!targetPlaylist) targetPlaylist = playlists[0];
+      if (!targetPlaylist) {
+        sendToPanel('random:result', { success: false, error: '没有找到歌单' });
+        return;
+      }
+      playlistId = targetPlaylist.id;
+      const detail = await api.playlist_detail({ id: playlistId, s: 2000, cookie: neteaseCookie });
+      tracks = detail.body?.playlist?.tracks || [];
+    }
+
+    if (!tracks || !tracks.length) {
+      sendToPanel('random:result', { success: false, error: '歌单为空' });
+      return;
+    }
+
+    // 随机挑选一首
+    const track = tracks[Math.floor(Math.random() * tracks.length)];
+    const songId = track.id;
+    const songName = track.name;
+    const artistName = (track.ar || []).map(a => a.name).join(', ');
+    console.log('随机播放:', songName, '-', artistName);
+
+    // 通过 orpheus:// 协议让网易云客户端播放
+    try {
+      await shell.openExternal(`orpheus://song/${songId}`);
+    } catch (_) {
+      // 回退：用命令行打开
+      exec(`start orpheus://song/${songId}`, (err) => {
+        if (err) console.error('orpheus 协议失败:', err.message);
+      });
+    }
+
+    // 立即更新 UI（窗口标题检测随后会自动修正）
+    if (currentSong) previousSong = { name: currentSong.song, artist: currentSong.artist };
+    lastSongKey = `${songId}:${songName}`;
+    currentSong = { song: songName, artist: artistName };
+    sendToOverlay('song:update', { name: songName, artist: artistName, coverUrl: null, loading: true });
+    sendToOverlay('song:prev-next', { previous: previousSong, next: null });
+    sendToOverlay('lyrics:update', { lyrics: '', lines: [], offset: 0 });
+    sendToPanel('now-playing', { name: songName, artist: artistName });
+    sendToPanel('random:result', { success: true });
+
+    fetchCover(songName, artistName);
+  } catch (e) {
+    console.error('随机播放错误:', e.message);
+    sendToPanel('random:result', { success: false, error: e.message });
+  }
+}
+
 function processDetectedSong(name, artist) {
   if (!name) return;
+  // 防止窗口标题和 API 轮询重复触发同一首歌
+  if (currentSong && currentSong.song === name && currentSong.artist === artist) return;
   const key = `${name}|${artist}`;
   if (key === lastSongKey) return;
+  // 保存上一曲
+  if (currentSong) previousSong = { name: currentSong.song, artist: currentSong.artist };
+  detectedSongs.add(name + '|' + artist);
+  if (detectedSongs.size > 50) detectedSongs.clear();
   lastSongKey = key;
   console.log('歌曲:', name, '-', artist);
   currentSong = { song: name, artist };
   sendToOverlay('song:update', { name, artist, coverUrl: null, loading: true });
+  sendToOverlay('song:prev-next', { previous: previousSong, next: null }); // 先清空下一曲
+  sendToOverlay('lyrics:update', { lyrics: '', lines: [], offset: 0 }); // 清空旧歌词
   sendToPanel('now-playing', { name, artist });
   fetchCover(name, artist);
 }
@@ -292,18 +570,18 @@ async function pollCurrentSong() {
       async () => {
         const r = await api.recent_listen_list({ cookie: neteaseCookie });
         const items = r.body?.data?.list || r.body?.data || [];
-        if (items.length) { const i = items[0]; return { id: i.id, name: i.name || i.songName, artist: (i.ar||[]).map(a=>a.name).join(',') || i.artist }; }
+        if (items.length) { const i = items[0]; return { id: i.id, name: i.name || i.songName, artist: (i.ar||[]).map(a=>a.name).join(',') || i.artist, playTime: i.lastPlayTime || i.playTime || null }; }
       },
       async () => {
         const r = await api.record_recent_song({ cookie: neteaseCookie, limit: 1 });
         const list = r.body?.data || [];
-        if (list.length) { const e = list[0]; const s = e.song || e; return { id: s.id, name: s.name, artist: (s.ar||[]).map(a=>a.name).join(',') || e.artist }; }
+        if (list.length) { const e = list[0]; const s = e.song || e; return { id: s.id, name: s.name, artist: (s.ar||[]).map(a=>a.name).join(',') || e.artist, playTime: e.playTime || null }; }
       },
       async () => {
         if (!neteaseUid) return null;
         const r = await api.user_record({ uid: neteaseUid, type: 1, cookie: neteaseCookie });
         const items = r.body?.weekData || [];
-        if (items.length) { const s = items[0].song; return { id: s.id, name: s.name, artist: (s.ar||[]).map(a=>a.name).join(',') }; }
+        if (items.length) { const s = items[0].song; return { id: s.id, name: s.name, artist: (s.ar||[]).map(a=>a.name).join(',') || (items[0].artists||[]).map(a=>a.name).join(',') }; }
       }
     ]) {
       songData = await fetcher();
@@ -313,25 +591,38 @@ async function pollCurrentSong() {
     if (!songData?.name) { emptyPollCount++; if (emptyPollCount % 12 === 0) console.log('API 轮询: 暂无歌曲'); return; }
     emptyPollCount = 0;
 
+    const name = songData.name, artist = songData.artist || 'Unknown';
+    if (currentSong && currentSong.song === name && currentSong.artist === artist) return;
+    if (detectedSongs.has(name + '|' + artist)) return;
+    detectedSongs.add(name + '|' + artist);
+    if (detectedSongs.size > 50) detectedSongs.clear();
     const key = `${songData.id}:${songData.name}`;
     if (key === lastSongKey) return;
+    if (currentSong) previousSong = { name: currentSong.song, artist: currentSong.artist };
     lastSongKey = key;
-
-    const name = songData.name, artist = songData.artist || 'Unknown';
     console.log('API 检测到:', name, '-', artist);
     currentSong = { song: name, artist };
     sendToOverlay('song:update', { name, artist, coverUrl: null, loading: true });
+    sendToOverlay('song:prev-next', { previous: previousSong, next: null });
+    sendToOverlay('lyrics:update', { lyrics: '', lines: [], offset: 0 }); // 清空旧歌词
     sendToPanel('now-playing', { name, artist });
 
     try {
       const d = await api.song_detail({ ids: songData.id, cookie: neteaseCookie });
       const s = d.body?.songs?.[0];
-      if (s?.al?.picUrl) { sendToOverlay('song:update', { name, artist, coverUrl: s.al.picUrl.replace(/^http:/, 'https:'), loading: false }); return; }
-    } catch (e) {}
-    sendToOverlay('song:update', { name, artist, coverUrl: null, loading: false });
+      // 计算歌词偏移：获取 playTime，限制在歌曲时长内
+      let songOffset = 0;
+      if (songData.playTime) {
+        const elapsed = (Date.now() - songData.playTime) / 1000;
+        songOffset = (elapsed > 0 && elapsed < 86400) ? elapsed : 0; // 合理范围：1秒~24小时
+      }
+      const songDuration = s?.dt ? Math.floor(s.dt / 1000) : 0;
+      if (songOffset > songDuration - 2) songOffset = 0; // 偏移超过歌曲时长则重置
+      if (s?.al?.picUrl) { sendToOverlay('song:update', { name, artist, coverUrl: s.al.picUrl.replace(/^http:/, 'https:'), loading: false }); if (s?.id) { fetchLyrics(s.id, songOffset); fetchPrevNext(s.id, s.al?.id); if (s.dt) scheduleAutoRandom(s.dt); } }
+    } catch (e) { sendToOverlay('song:update', { name, artist, coverUrl: null, loading: false }); }
   } catch (e) {
     // 301 错误表示 Cookie 过期
-    if (e.message?.includes('301')) { neteaseCookie = null; sendToPanel('login:status', { loggedIn: false }); }
+    if (e.message?.includes('301')) { neteaseCookie = null; settings.savedCookie = ''; settings.savedUid = null; debounceSave(); sendToPanel('login:status', { loggedIn: false }); }
   }
 }
 
@@ -340,7 +631,7 @@ function startDetectLoop() {
   isDetecting = true;
   emptyPollCount = 0;
   setTimeout(pollWindowTitle, 500);
-  const poll = () => { if (!isDetecting) return; pollCurrentSong().then(() => setTimeout(poll, 5000)).catch(() => setTimeout(poll, 5000)); };
+  const poll = () => { if (!isDetecting) return; pollCurrentSong().then(() => setTimeout(poll, 2000)).catch(() => setTimeout(poll, 2000)); };
   setTimeout(poll, 3000);
 }
 
@@ -367,6 +658,7 @@ async function doLogin(phone, password) {
       neteaseCookie = cookie;
       neteaseUid = result.body.account?.id || result.body.profile?.userId || null;
       settings.phone = phone; settings.password = password;
+      settings.savedCookie = cookie; settings.savedUid = neteaseUid;
       debounceSave();
       sendToPanel('login:status', { loggedIn: true, nickname: result.body.profile?.nickname || '' });
       startDetectLoop();
@@ -395,6 +687,9 @@ function getDisplayBounds() { return getActiveDisplay().workArea; }
 function sendToOverlay(ch, data) { if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.webContents.send(ch, data); }
 function sendToPanel(ch, data) { if (panelWindow && !panelWindow.isDestroyed()) panelWindow.webContents.send(ch, data); }
 function sendToGamepad(ch, data) { if (gamepadWindow && !gamepadWindow.isDestroyed()) gamepadWindow.webContents.send(ch, data); }
+function sendOverlaySettings() {
+  sendToOverlay('overlay:settings', { showControls: settings.showControls, showLyrics: settings.showLyrics, showPrevNext: settings.showPrevNext });
+}
 
 // ── 窗口创建 ──
 function createOverlayWindow() {
@@ -413,6 +708,9 @@ function createOverlayWindow() {
     webPreferences: { preload: path.join(__dirname, 'preload.js'), nodeIntegration: false, contextIsolation: true, sandbox: false }
   });
   overlayWindow.loadFile('overlay.html');
+  overlayWindow.webContents.on('did-finish-load', () => {
+    sendOverlaySettings();
+  });
   overlayWindow.setIgnoreMouseEvents(true, { forward: true });
   if (settings.visible) overlayWindow.show();
   if (settings.opacity < 1) overlayWindow.setOpacity(settings.opacity);
@@ -470,7 +768,8 @@ function createPanelWindow() {
       song: currentSong || { name: '等待音乐...', artist: '' }, loggedIn: !!neteaseCookie, savedPhone: settings.phone,
       displayIndex: settings.displayIndex || 0, displayBounds: getDisplayBounds(),
       displays: getDisplays().map((d,i) => ({ index: i, name: `屏幕 ${i+1}`, width: d.workAreaSize.width, height: d.workAreaSize.height, x: d.workArea.x, y: d.workArea.y })),
-      closeBehavior: settings.closeBehavior || 'quit'
+      closeBehavior: settings.closeBehavior || 'quit',
+      showControls: settings.showControls || false, showLyrics: settings.showLyrics || false, showPrevNext: settings.showPrevNext || false
     });
   });
 
@@ -530,6 +829,9 @@ function setupIPC() {
   ipcMain.on('opacity:change', (event, { opacity }) => { settings.opacity = opacity; if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.setOpacity(opacity); debounceSave(); });
   ipcMain.on('visibility:toggle', (event, { visible }) => { settings.visible = visible; if (overlayWindow && !overlayWindow.isDestroyed()) { if (visible) overlayWindow.show(); else overlayWindow.hide(); } debounceSave(); });
   ipcMain.on('control:action', (event, { action }) => simulateMediaKey(action));
+  ipcMain.on('overlay:show-controls', (event, { show }) => { settings.showControls = show; sendOverlaySettings(); debounceSave(); });
+  ipcMain.on('overlay:show-lyrics', (event, { show }) => { settings.showLyrics = show; sendOverlaySettings(); debounceSave(); });
+  ipcMain.on('overlay:show-prevnext', (event, { show }) => { settings.showPrevNext = show; sendOverlaySettings(); debounceSave(); });
 
   // 手柄
   ipcMain.on('gamepad:action', (event, { action }) => simulateMediaKey(action));
@@ -623,15 +925,29 @@ function setupIPC() {
       opacity: settings.opacity, visible: settings.visible,
       screenSize: getDisplayBounds(), screenFullSize: { width: fullSize.width, height: fullSize.height },
       overlaySize: { width: settings.width, height: settings.height },
-      loggedIn: !!neteaseCookie, displayIndex: settings.displayIndex || 0
+      loggedIn: !!neteaseCookie, displayIndex: settings.displayIndex || 0,
+      showControls: settings.showControls || false, showLyrics: settings.showLyrics || false, showPrevNext: settings.showPrevNext || false
     };
   });
   ipcMain.handle('poll:now', async () => { await pollCurrentSong(); return currentSong || { song: '暂无数据', artist: '' }; });
+  ipcMain.handle('song:play-random', async () => { await playRandomSong(); });
+  ipcMain.handle('auto-random:toggle', async (event, { enabled }) => {
+    autoRandomEnabled = !!enabled;
+    settings.autoRandom = autoRandomEnabled;
+    debounceSave();
+    if (!autoRandomEnabled) cancelAutoRandom();
+    else if (currentSong) {
+      // 如果已开启且当前有歌曲，尝试获取时长并调度
+      console.log('自动随机已开启');
+    }
+    sendToPanel('auto-random:status', { enabled: autoRandomEnabled });
+  });
+  ipcMain.handle('auto-random:status', async () => ({ enabled: autoRandomEnabled }));
 
   // 登录
   ipcMain.handle('login:submit', async (event, { phone, password }) => { return await doLogin(phone, password); });
   ipcMain.handle('login:logout', async () => {
-    neteaseCookie = null; settings.phone = ''; settings.password = ''; stopDetectLoop(); lastSongKey = ''; currentSong = null;
+    neteaseCookie = null; settings.phone = ''; settings.password = ''; settings.savedCookie = ''; settings.savedUid = null; stopDetectLoop(); lastSongKey = ''; currentSong = null;
     debounceSave();
     sendToOverlay('song:update', { name: '等待音乐...', artist: '', coverUrl: null, loading: false });
     sendToPanel('now-playing', { name: '等待音乐...', artist: '' });
@@ -659,6 +975,7 @@ function setupIPC() {
       if (cookie) {
         neteaseCookie = cookie; neteaseUid = result.body.account?.id || result.body.profile?.userId || null;
         settings.phone = phone; settings.password = '';
+        settings.savedCookie = cookie; settings.savedUid = neteaseUid;
         debounceSave();
         sendToPanel('login:status', { loggedIn: true, nickname: result.body.profile?.nickname || '' });
         startDetectLoop(); setTimeout(pollCurrentSong, 1000);
@@ -690,6 +1007,7 @@ function setupIPC() {
             const cookie = check.body?.cookie;
             if (cookie) {
               neteaseCookie = cookie; neteaseUid = check.body?.profile?.userId || null;
+              settings.savedCookie = cookie; settings.savedUid = neteaseUid;
               sendToPanel('login:status', { loggedIn: true, nickname: check.body?.profile?.nickname || '' });
               startDetectLoop(); setTimeout(pollCurrentSong, 1000);
               settings.phone = settings.phone || 'qr_login'; settings.password = settings.password || '';
@@ -744,6 +1062,30 @@ function loadBindings() {
 }
 
 // ── 应用生命周期 ──
+async function restoreLogin() {
+  if (!settings.savedCookie) return false;
+  neteaseCookie = settings.savedCookie;
+  neteaseUid = settings.savedUid || null;
+  try {
+    const api = getApi();
+    if (api) {
+      const r = await api.login_status({ cookie: neteaseCookie });
+      if (r.body?.data?.code !== 200) throw new Error('cookie expired');
+      console.log('恢复登录成功:', r.body?.data?.profile?.nickname || '');
+      sendToPanel('login:status', { loggedIn: true, nickname: r.body?.data?.profile?.nickname || '' });
+      return true;
+    }
+  } catch (e) {
+    console.log('Cookie 已失效，请重新登录');
+    neteaseCookie = null;
+    neteaseUid = null;
+    settings.savedCookie = '';
+    settings.savedUid = null;
+    debounceSave();
+  }
+  return false;
+}
+
 app.whenReady().then(() => {
   loadSettings();
   loadBindings();
@@ -762,8 +1104,15 @@ app.whenReady().then(() => {
     applyKeyboardBindings();
     startMousePoll();
     startDetectLoop();
-    if (settings.phone && settings.password) await tryAutoLogin();
+    const restored = await restoreLogin();
+    if (!restored && settings.phone && settings.password) await tryAutoLogin();
     sendToGamepad('bindings:update', bindings.gamepad || {});
+    // 恢复自动随机状态
+    if (settings.autoRandom) {
+      autoRandomEnabled = true;
+      sendToPanel('auto-random:status', { enabled: true });
+      console.log('自动随机已恢复');
+    }
   }, 500);
 });
 

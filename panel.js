@@ -195,11 +195,35 @@ visibilityCheck.addEventListener('change', () => window.api.toggleVisibility(vis
 closeQuitCheck.addEventListener('change', () => { window.api.setCloseBehavior(closeQuitCheck.checked ? 'quit' : 'minimize'); });
 displaySelect.addEventListener('change', function() { window.api.sendDisplayChange(parseInt(this.value)); });
 document.getElementById('reset-size-btn').addEventListener('click', () => window.api.resetOverlaySize());
+document.getElementById('show-controls-check').addEventListener('change', function() { window.api.setShowControls(this.checked); });
+document.getElementById('show-lyrics-check').addEventListener('change', function() { window.api.setShowLyrics(this.checked); });
+document.getElementById('show-prevnext-check').addEventListener('change', function() { window.api.setShowPrevNext(this.checked); });
+document.getElementById('auto-random-check').addEventListener('change', function() {
+  window.api.setAutoRandom(this.checked);
+});
 
 // ── 媒体按钮 ──
 document.getElementById('btn-prev').addEventListener('click', () => window.api.controlAction('prev'));
 document.getElementById('btn-playpause').addEventListener('click', () => window.api.controlAction('playpause'));
 document.getElementById('btn-next').addEventListener('click', () => window.api.controlAction('next'));
+document.getElementById('btn-random').addEventListener('click', () => {
+  const btn = document.getElementById('btn-random');
+  btn.textContent = '...';
+  btn.disabled = true;
+  window.api.playRandom();
+});
+window.api.onRandomResult((data) => {
+  const btn = document.getElementById('btn-random');
+  btn.disabled = false;
+  if (data.success) {
+    btn.textContent = '✓';
+    setTimeout(() => { btn.textContent = '随机'; }, 2000);
+  } else {
+    btn.textContent = '✕';
+    setTimeout(() => { btn.textContent = '随机'; }, 2000);
+    if (data.error) console.log('随机播放失败:', data.error);
+  }
+});
 refreshBtn.addEventListener('click', async () => {
   refreshBtn.disabled = true; refreshBtn.textContent = '...';
   try { const r = await window.api.pollNow(); if (r?.song) { nowPlayingName.textContent = r.song; nowPlayingArtist.textContent = r.artist || ''; } } catch (e) {}
@@ -432,6 +456,9 @@ window.api.onInitState((data) => {
   if (data.song) { nowPlayingName.textContent = data.song.name || '等待音乐...'; nowPlayingArtist.textContent = data.song.artist || ''; nowPlayingTop.textContent = data.song.name || ''; }
   opacitySlider.value = Math.round((data.opacity || 1) * 100); opacityDisplay.textContent = opacitySlider.value + '%';
   visibilityCheck.checked = data.visible !== false;
+  document.getElementById('show-controls-check').checked = data.showControls || false;
+  document.getElementById('show-lyrics-check').checked = data.showLyrics || false;
+  document.getElementById('show-prevnext-check').checked = data.showPrevNext || false;
   if (data.savedPhone) loginPhone.value = data.savedPhone;
   if (data.closeBehavior === 'minimize') closeQuitCheck.checked = false;
 
@@ -445,6 +472,10 @@ window.api.onNowPlaying((data) => {
   nowPlayingName.textContent = data.name || '等待音乐...';
   nowPlayingArtist.textContent = data.artist || '';
   nowPlayingTop.textContent = data.name || '';
+});
+
+window.api.onAutoRandomStatus((data) => {
+  document.getElementById('auto-random-check').checked = data.enabled;
 });
 
 window.api.onPositionUpdated((data) => { updateIconPosition(data.x, data.y); var r=absToRel(data.x,data.y); updateSliders(r.x,r.y); updateTooltip(data.x, data.y); });
@@ -599,7 +630,13 @@ window.api.onQrResult((data) => {
     if (status.song) { nowPlayingName.textContent = status.song.name || '等待音乐...'; nowPlayingArtist.textContent = status.song.artist || ''; nowPlayingTop.textContent = status.song.name || ''; }
     opacitySlider.value = Math.round((status.opacity || 1) * 100); opacityDisplay.textContent = opacitySlider.value + '%';
     visibilityCheck.checked = status.visible !== false;
+    document.getElementById('show-controls-check').checked = status.showControls || false;
+    document.getElementById('show-lyrics-check').checked = status.showLyrics || false;
+    document.getElementById('show-prevnext-check').checked = status.showPrevNext || false;
   }
   const b = await window.api.loadBindings();
   if (b) { bindings = b; renderAllBindings(); }
+  // 加载自动随机状态
+  const ar = await window.api.getAutoRandom();
+  if (ar) document.getElementById('auto-random-check').checked = ar.enabled;
 })();

@@ -77,5 +77,5 @@ setTimeout(() => {
       found = true;
     }
   }
-  if (found) startPolling();
+  if (found) startPolling()
 }, 500);
