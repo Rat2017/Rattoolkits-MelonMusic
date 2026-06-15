@@ -8,7 +8,6 @@ const iconv = require('iconv-lite');
 // ── 全局状态 ──
 let overlayWindow = null;       // 悬浮窗窗口
 let panelWindow = null;         // 控制面板窗口
-let gamepadWindow = null;       // 手柄后台窗口
 let currentSong = null;         // 当前歌曲信息
 let previousSong = null;        // 上一曲
 let nextSong = null;            // 下一曲
@@ -208,6 +207,85 @@ function stopMousePoll() {
   }
 }
 
+// ── XInput 手柄轮询（Windows 原生 API，通过 PowerShell 子进程） ──
+const XINPUT_BITS = [0,1,2,3,4,5,6,7,8,9,12,13,14,15];
+let xinputPollTimer = null;
+let xinputPrevStates = [0, 0, 0, 0];
+
+function startXInputPoll() {
+  if (xinputPollTimer) return;
+  const script = [
+    'Add-Type -TypeDefinition @"',
+    'using System; using System.Runtime.InteropServices;',
+    'public class XG {',
+    '  [DllImport("xinput1_4.dll")] public static extern int XInputGetState(int i, ref XGState s);',
+    '  public struct XGState { public uint p; public XGGamepad g; }',
+    '  public struct XGGamepad { public ushort w; public byte lt; public byte rt; public short lx; public short ly; public short rx; public short ry; }',
+    '  public static string Poll() {',
+    '    var sb = new System.Text.StringBuilder();',
+    '    for (int i=0;i<4;i++) { var s=new XGState(); if (XInputGetState(i,ref s)==0) sb.Append(i+":"+s.g.w+";"); }',
+    '    return sb.ToString();',
+    '  }',
+    '}',
+    '"@',
+    '$p=""; while(1){ $r=[XG]::Poll(); if($r-ne$p){ Write-Output $r; $p=$r } Start-Sleep -Milliseconds 60 }'
+  ].join('\n');
+
+  const sp = path.join(os.tmpdir(), `xinput_${Date.now()}.ps1`);
+  fs.writeFileSync(sp, script, 'utf8');
+
+  const child = exec(
+    `powershell -NoProfile -ExecutionPolicy Bypass -File "${sp}"`,
+    { timeout: 0 },
+    (err) => {
+      if (err) console.log('XInput 轮询已停止:', err.message);
+      xinputPollTimer = null;
+      try { fs.unlinkSync(sp); } catch(e) {}
+    }
+  );
+
+  if (child && child.stdout) {
+    child.stdout.on('data', (data) => {
+      const lines = iconv.decode(data, 'utf8').trim().split('\n');
+      for (const line of lines) {
+        const str = line.trim();
+        if (!str) continue;
+        const entries = str.split(';').filter(Boolean);
+        for (const entry of entries) {
+          const [pStr, bStr] = entry.split(':');
+          const pi = parseInt(pStr);
+          const btns = parseInt(bStr);
+          if (isNaN(pi) || isNaN(btns)) continue;
+          const prev = xinputPrevStates[pi] || 0;
+          const newlyPressed = btns & ~prev; // 边沿检测：从"未按"到"按下"的位
+          if (newlyPressed) {
+            for (const bit of XINPUT_BITS) {
+              if (newlyPressed & (1 << bit)) {
+                sendToPanel('xinput:button', { player: pi, button: bit });
+              }
+            }
+          }
+          xinputPrevStates[pi] = btns;
+        }
+      }
+    });
+  }
+
+  xinputPollTimer = { child, sp };
+}
+
+function stopXInputPoll() {
+  if (xinputPollTimer) {
+    try {
+      const pid = xinputPollTimer.child.pid;
+      xinputPollTimer.child.kill('SIGTERM');
+      exec(`taskkill /f /pid ${pid} 2>nul`, () => {});
+    } catch(e) {}
+    try { fs.unlinkSync(xinputPollTimer.sp); } catch(e) {}
+    xinputPollTimer = null;
+  }
+}
+
 // ── 绑定 IPC ──
 function updateBindings(newBindings) {
   // 始终与默认值合并，确保键盘快捷键完整
@@ -219,7 +297,6 @@ function updateBindings(newBindings) {
   applyKeyboardBindings();
   stopMousePoll();
   startMousePoll();
-  sendToGamepad('bindings:update', bindings.gamepad || {});
   saveBindings();
 }
 
@@ -685,7 +762,6 @@ function getDisplayBounds() { return getActiveDisplay().workArea; }
 // ── IPC 通信辅助 ──
 function sendToOverlay(ch, data) { if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.webContents.send(ch, data); }
 function sendToPanel(ch, data) { if (panelWindow && !panelWindow.isDestroyed()) panelWindow.webContents.send(ch, data); }
-function sendToGamepad(ch, data) { if (gamepadWindow && !gamepadWindow.isDestroyed()) gamepadWindow.webContents.send(ch, data); }
 function sendOverlaySettings() {
   sendToOverlay('overlay:settings', { showControls: settings.showControls, showLyrics: settings.showLyrics, showPrevNext: settings.showPrevNext });
 }
@@ -806,14 +882,6 @@ function patchOverlayClose() {
   }
 }
 
-function createGamepadWindow() {
-  gamepadWindow = new BrowserWindow({
-    width: 1, height: 1, show: false,
-    webPreferences: { preload: path.join(__dirname, 'preload.js'), nodeIntegration: false, contextIsolation: true, sandbox: false }
-  });
-  gamepadWindow.loadFile('gamepad.html');
-}
-
 const OVERLAY_BASE_W = 300, OVERLAY_BASE_H = 110;
 
 function resizeOverlay(w, h) {
@@ -866,11 +934,6 @@ function setupIPC() {
   ipcMain.on('overlay:show-lyrics', (event, { show }) => { settings.showLyrics = show; sendOverlaySettings(); debounceSave(); });
   ipcMain.on('overlay:show-prevnext', (event, { show }) => { settings.showPrevNext = show; sendOverlaySettings(); debounceSave(); });
 
-  // 手柄
-  ipcMain.on('gamepad:action', (event, { action }) => simulateMediaKey(action));
-  ipcMain.on('gamepad:connected', (event, { id, index }) => sendToPanel('gamepad:status', { connected: true, id, index }));
-  ipcMain.on('gamepad:disconnected', (event, { index }) => sendToPanel('gamepad:status', { connected: false, index }));
-  ipcMain.on('gamepad:button-pressed', (event, { gamepadIndex, buttonIndex }) => sendToPanel('gamepad:binding-result', { gamepadIndex, buttonIndex }));
 
   // 快捷键绑定
   ipcMain.handle('bindings:load', () => bindings);
@@ -879,7 +942,6 @@ function setupIPC() {
     updateBindings(b);
     sendToPanel('bindings:saved', { success: true });
   });
-  ipcMain.on('bindings:start-binding', () => sendToGamepad('start-binding'));
 
   // 窗口控制
   ipcMain.on('window:minimize', () => { if (panelWindow && !panelWindow.isDestroyed()) panelWindow.minimize(); });
@@ -1155,7 +1217,6 @@ app.whenReady().then(() => {
   createOverlayWindow();
   patchOverlayClose();
   createPanelWindow();
-  createGamepadWindow();
   setupIPC();
 
   // 创建托盘图标
@@ -1165,10 +1226,10 @@ app.whenReady().then(() => {
   setTimeout(async () => {
     applyKeyboardBindings();
     startMousePoll();
+    startXInputPoll();
     startDetectLoop();
     const restored = await restoreLogin();
     if (!restored && settings.phone && settings.password) await tryAutoLogin();
-    sendToGamepad('bindings:update', bindings.gamepad || {});
     // 恢复自动随机状态
     // if (settings.autoRandom) {
     //   autoRandomEnabled = true;
@@ -1199,6 +1260,7 @@ app.on('before-quit', () => {
   if (tray) { tray.destroy(); tray = null; }
 });
 app.on('will-quit', () => {
+  stopXInputPoll();
   // 安全清理：杀死本应用可能遗留的 PowerShell 进程
   try {
     require('child_process').exec(
@@ -1209,7 +1271,7 @@ app.on('will-quit', () => {
 });
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
-    createOverlayWindow(); createPanelWindow(); createGamepadWindow();
+    createOverlayWindow(); createPanelWindow();
     patchOverlayClose();
   } else {
     if (panelWindow && !panelWindow.isDestroyed()) panelWindow.show();

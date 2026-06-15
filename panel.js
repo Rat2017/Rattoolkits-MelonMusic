@@ -4,8 +4,10 @@ let screenX = 0, screenY = 0;
 let overlayW = 340, overlayH = 100;
 let isDragging = false;
 let bindings = { keyboard: {}, gamepad: {}, mouse: {} };
-let gamepadConnected = false;
-let isBinding = false;
+let isBinding = false;       // 当前是否正在绑定手柄按键
+let bindingTarget = '';      // 正在绑定哪个动作
+
+let xinputConnected = false; // XInput 手柄是否已连接（通过收到按键事件确认）
 
 // DOM
 const desktop = document.getElementById('virtual-desktop');
@@ -61,9 +63,9 @@ const qrCancelBtn = document.getElementById('qr-cancel-btn');
 const keyboardList = document.getElementById('keyboard-list');
 const mouseList = document.getElementById('mouse-list');
 const gamepadStatus = document.getElementById('gamepad-status');
-const bindingList = document.getElementById('binding-list');
-const bindBtn = document.getElementById('bind-btn');
-const bindHint = document.getElementById('bind-hint');
+const gpPrevLabel = document.getElementById('gp-prev-label');
+const gpPlayLabel = document.getElementById('gp-playpause-label');
+const gpNextLabel = document.getElementById('gp-next-label');
 
 const ACTIONS = ['next', 'prev', 'playpause'];
 const ACTION_LABELS = { next: '下一首', prev: '上一首', playpause: '播放/暂停' };
@@ -407,50 +409,71 @@ function renderMouse(mouse) {
   });
 }
 
-// 手柄
-function renderGamepad(gamepad) {
-  bindingList.innerHTML = '';
-  const entries = Object.entries(gamepad || {});
-  if (entries.length === 0) { bindingList.innerHTML = '<div style="color:var(--text-dim);font-size:10px">尚未绑定按键</div>'; return; }
-  for (const [key, action] of entries) {
-    const div = document.createElement('div'); div.className = 'bind-row';
-    div.innerHTML = `<span class="bind-action">按键 ${key.split(':')[1]}</span><select class="bind-action-select" data-gp-key="${key}"><option value="">未绑定</option>${ACTIONS.map(a => `<option value="${a}" ${action === a ? 'selected' : ''}>${ACTION_LABELS[a]}</option>`).join('')}</select><button class="remove-binding" data-gp-key="${key}">✕</button>`;
-    bindingList.appendChild(div);
-  }
-  bindingList.querySelectorAll('.bind-action-select').forEach(sel => {
-    sel.addEventListener('change', function() {
-      const k = this.dataset.gpKey;
-      if (this.value) bindings.gamepad[k] = this.value; else delete bindings.gamepad[k];
-      window.api.saveBindings(bindings);
-    });
-  });
-  bindingList.querySelectorAll('.remove-binding').forEach(btn => {
-    btn.addEventListener('click', function() {
-      delete bindings.gamepad[this.dataset.gpKey];
-      window.api.saveBindings(bindings); renderGamepad(bindings.gamepad);
-    });
-  });
+// 手柄（XInput 方式，通过 main 进程 PowerShell 轮询）
+function renderGamepadBindings() {
+  const gp = bindings.gamepad || {};
+  const btnMap = ['', '方向键下','方向键左','方向键右','Start','Back','左摇杆','右摇杆','LB','RB','','','A','B','X','Y'];
+  gpPrevLabel.textContent = gp.prev ? (btnMap[gp.prev.button] || '按键'+gp.prev.button) : '未绑定';
+  gpPlayLabel.textContent  = gp.playpause ? (btnMap[gp.playpause.button] || '按键'+gp.playpause.button) : '未绑定';
+  gpNextLabel.textContent  = gp.next ? (btnMap[gp.next.button] || '按键'+gp.next.button) : '未绑定';
 }
 
-bindBtn.addEventListener('click', () => {
-  if (isBinding) return;
-  isBinding = true; bindHint.style.display = 'block'; bindBtn.textContent = '监听中...';
-  window.api.startBinding();
-  setTimeout(() => { if (isBinding) { isBinding = false; bindHint.style.display = 'none'; bindBtn.textContent = '绑定按键'; } }, 10000);
+// 所有绑定按钮的绑定事件
+document.querySelectorAll('.gp-bind-btn').forEach(btn => {
+  btn.addEventListener('click', function() {
+    const action = this.dataset.action;
+    if (isBinding) {
+      // 点击同一个按钮取消绑定
+      if (bindingTarget === action) {
+        isBinding = false;
+        bindingTarget = '';
+        this.textContent = '绑定';
+        return;
+      }
+      // 切换到另一个动作
+      document.querySelectorAll('.gp-bind-btn').forEach(b => b.textContent = '绑定');
+    }
+    isBinding = true;
+    bindingTarget = action;
+    this.textContent = '取消';
+    gamepadStatus.textContent = '等待按键...';
+  });
 });
 
-window.api.onGamepadBindingResult(async (data) => {
-  if (!isBinding) return;
-  isBinding = false; bindHint.style.display = 'none'; bindBtn.textContent = '绑定按键';
-  const action = prompt(`按键 ${data.buttonIndex} 已按下！输入操作 (next/prev/playpause):`, 'next');
-  if (action && ACTIONS.includes(action)) {
-    const gpIdx = data.gamepadIndex ?? 0;
-    bindings.gamepad[`${gpIdx}:${data.buttonIndex}`] = action;
-    window.api.saveBindings(bindings); renderGamepad(bindings.gamepad);
+// 接收 main 进程发来的 XInput 手柄按键事件
+window.api.onXInputButton((data) => {
+  // 确保手柄状态显示已连接
+  if (!xinputConnected) {
+    xinputConnected = true;
+    gamepadStatus.textContent = '✓ 已连接';
+    gamepadStatus.className = 'status-on';
+  }
+
+  if (isBinding && bindingTarget) {
+    // 绑定模式：保存按键映射
+    const action = bindingTarget;
+    isBinding = false;
+    bindingTarget = '';
+    document.querySelectorAll('.gp-bind-btn').forEach(b => b.textContent = '绑定');
+    gamepadStatus.textContent = '✓ 已连接';
+
+    bindings.gamepad[action] = { player: data.player, button: data.button };
+    window.api.saveBindings(bindings);
+    renderGamepadBindings();
+    return;
+  }
+
+  // 执行模式：查找绑定并触发
+  const gp = bindings.gamepad || {};
+  for (const [action, binding] of Object.entries(gp)) {
+    if (binding && binding.player === data.player && binding.button === data.button) {
+      window.api.controlAction(action);
+      break;
+    }
   }
 });
 
-function renderAllBindings() { renderKeyboard(bindings.keyboard || {}); renderMouse(bindings.mouse || {}); renderGamepad(bindings.gamepad || {}); }
+function renderAllBindings() { renderKeyboard(bindings.keyboard || {}); renderMouse(bindings.mouse || {}); renderGamepadBindings(); }
 
 // ── 虚拟桌面尺寸 ──
 function updateVirtualDesktopSize(bounds) {
@@ -526,10 +549,9 @@ window.api.onNowPlaying((data) => {
 
 window.api.onPositionUpdated((data) => { updateIconPosition(data.x, data.y); var r=absToRel(data.x,data.y); updateSliders(r.x,r.y); updateTooltip(data.x, data.y); });
 window.api.onGamepadStatus((data) => {
-  gamepadConnected = data.connected;
-  gamepadStatus.textContent = data.connected ? '✓ 已连接' : '未检测到手柄';
+  xinputConnected = data.connected;
+  gamepadStatus.textContent = data.connected ? '✓ 已连接' : '等待按键...';
   gamepadStatus.className = data.connected ? 'status-on' : 'status-off';
-  bindBtn.disabled = !data.connected;
 });
 window.api.onBindingsSaved(() => renderAllBindings());
 window.api.onDisplayBounds((data) => {
@@ -712,6 +734,9 @@ window.api.onQrResult((data) => {
   }
   const b = await window.api.loadBindings();
   if (b) { bindings = b; renderAllBindings(); }
+  // 手柄状态等待 XInput IPC 事件，连接后 xinput:button 会自动触发状态更新
+  gamepadStatus.textContent = '连接手柄后按任意键...';
+
   // 加载自动随机状态
   // const ar = await window.api.getAutoRandom();
   // if (ar) document.getElementById('auto-random-check').checked = ar.enabled;

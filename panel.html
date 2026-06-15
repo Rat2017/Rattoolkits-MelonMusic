@@ -189,9 +189,21 @@
           </div>
           <div id="bind-gamepad" class="bind-panel">
             <div id="gamepad-status" class="status-off" style="font-size:11px">未检测到手柄</div>
-            <div id="binding-list"></div>
-            <button id="bind-btn" class="action-btn" style="font-size:10px;padding:3px 8px" disabled>绑定按键</button>
-            <div id="bind-hint" class="hint-text" style="display:none">按下手柄按键...</div>
+            <div class="gp-row" data-action="prev">
+              <span class="gp-action">⏮ 上一曲</span>
+              <span class="gp-btn" id="gp-prev-label">未绑定</span>
+              <button class="gp-bind-btn" data-action="prev">绑定</button>
+            </div>
+            <div class="gp-row" data-action="playpause">
+              <span class="gp-action">⏸ 播放/暂停</span>
+              <span class="gp-btn" id="gp-playpause-label">未绑定</span>
+              <button class="gp-bind-btn" data-action="playpause">绑定</button>
+            </div>
+            <div class="gp-row" data-action="next">
+              <span class="gp-action">⏭ 下一曲</span>
+              <span class="gp-btn" id="gp-next-label">未绑定</span>
+              <button class="gp-bind-btn" data-action="next">绑定</button>
+            </div>
           </div>
         </div>
       </div>

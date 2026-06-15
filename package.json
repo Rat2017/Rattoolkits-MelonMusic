@@ -26,8 +26,6 @@
       "panel.html",
       "panel.js",
       "panel.css",
-      "gamepad.html",
-      "gamepad.js",
       "package.json"
     ],
     "win": {

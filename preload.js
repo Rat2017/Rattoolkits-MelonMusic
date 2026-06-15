@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('api', {
   // 手柄
   onGamepadStatus: (cb) => { const h = (_, d) => cb(d); ipcRenderer.on('gamepad:status', h); return () => ipcRenderer.removeListener('gamepad:status', h); },
   onGamepadBindingResult: (cb) => { const h = (_, d) => cb(d); ipcRenderer.on('gamepad:binding-result', h); return () => ipcRenderer.removeListener('gamepad:binding-result', h); },
+  onXInputButton: (cb) => { const h = (_, d) => cb(d); ipcRenderer.on('xinput:button', h); return () => ipcRenderer.removeListener('xinput:button', h); },
   onBindingsSaved: (cb) => { const h = (_, d) => cb(d); ipcRenderer.on('bindings:saved', h); return () => ipcRenderer.removeListener('bindings:saved', h); },
   onDisplayBounds: (cb) => { const h = (_, d) => cb(d); ipcRenderer.on('display:bounds', h); return () => ipcRenderer.removeListener('display:bounds', h); },
   onOverlaySizeUpdated: (cb) => { const h = (_, d) => cb(d); ipcRenderer.on('overlay:size-updated', h); return () => ipcRenderer.removeListener('overlay:size-updated', h); },
@@ -32,14 +33,6 @@ contextBridge.exposeInMainWorld('api', {
   loadBindings: () => ipcRenderer.invoke('bindings:load'),
   loadKeyboard: () => ipcRenderer.invoke('bindings:loadKeyboard'),
   saveBindings: (b) => ipcRenderer.send('bindings:save', { bindings: b }),
-
-  // 手柄专用
-  onBindingsUpdate: (cb) => { const h = (_, d) => cb(d); ipcRenderer.on('bindings:update', h); return () => ipcRenderer.removeListener('bindings:update', h); },
-  onStartBinding: (cb) => { const h = () => cb(); ipcRenderer.on('start-binding', h); return () => ipcRenderer.removeListener('start-binding', h); },
-  sendGamepadButton: (gi, bi) => ipcRenderer.send('gamepad:button-pressed', { gamepadIndex: gi, buttonIndex: bi }),
-  sendGamepadConnected: (id, i) => ipcRenderer.send('gamepad:connected', { id, index: i }),
-  sendGamepadDisconnected: (i) => ipcRenderer.send('gamepad:disconnected', { index: i }),
-  sendGamepadAction: (a) => ipcRenderer.send('gamepad:action', { action: a }),
 
   // 窗口控制
   minimizeWindow: () => ipcRenderer.send('window:minimize'),
